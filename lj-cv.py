@@ -6,6 +6,37 @@ import re
 import os.path
 import json
 
+INDEX_DATE        = "index-date"
+INDEX_POSTS       = "index-posts"
+INDEX_POST_DATE   = "index-post-date"
+INDEX_POST_HEADER = "index-post-header"
+INDEX_POST_TAGS   = "index-post-tags"
+INDEX_POST_ID     = "index-post-id"
+INDEX_FILES       = "index-files"
+
+POST_HEADER   = "post-header"
+POST_AUTHOR   = "post-author"
+POST_DATE     = "post-date"
+POST_TEXT     = "post-text"
+POST_COMPAGES = "post-comment-pages"
+POST_COMMENTS = "post-comments"
+POST_LINK     = "post-link"
+POST_TAGS     = "post-tags"
+POST_ID       = "post-id"
+POST_FILES    = "post-files"
+POST_MAIN_DIR = "post-main-dir"
+
+COM_TEXT      = 'text'
+COM_USER      = 'user'
+COM_USERPIC   = 'userpic'
+COM_DATE      = 'date'
+COM_DATETS    = 'ts'
+COM_ABOVE     = 'above'
+COM_BELOW     = 'below'
+COM_LEVEL     = 'level'
+COM_THREAD    = 'thread'
+COM_THREADURL = 'thread-url'
+
 def make_post_html_page(main_dir, postid):
   fdata = "%s/%s.data" % (main_dir, postid)
   if not os.path.isfile(fdata):
@@ -18,7 +49,7 @@ def make_post_html_page(main_dir, postid):
     out = "<!DOCTYPE HTML>\n"
     out += "<html><head>\n"
     out += "<meta charset=\"utf-8\">\n"
-    out += "<title>%s</title>\n" % jdata["post-header"]
+    out += "<title>%s</title>\n" % jdata[POST_HEADER]
     out += """<style type=\"text/css\">
   .post-head {
     background: #BFEFFF;
@@ -77,8 +108,8 @@ def make_post_html_page(main_dir, postid):
   out += "<body>\n"
 
   post_tags = ""
-  if jdata.get('post-tags'):
-    post_tags = "Tags: " + ", ".join(jdata['post-tags'].keys())
+  if jdata.get(POST_TAGS):
+    post_tags = "Tags: " + ", ".join(jdata[POST_TAGS].keys())
 
   out += ( """
 <div class=\"post-head\" ">
@@ -108,24 +139,24 @@ def make_post_html_page(main_dir, postid):
   </td></tr>
   </table>
 </div>
-""") % ( jdata['post-header'], jdata['post-date'],
-         jdata['post-link'], jdata['post-text'], post_tags )
+""") % ( jdata[POST_HEADER], jdata[POST_DATE],
+         jdata[POST_LINK], jdata[POST_TEXT], post_tags )
 
   out += ( """
 <div class=\"post-comments\" >
   %d Comments
 </div>
-""") % (len(jdata["comments"]))
+""") % (len(jdata[POST_COMMENTS]))
 
-  for comm in jdata["comments"]:
+  for comm in jdata[POST_COMMENTS]:
     comment_user_style = "comment-head"
-    if comm['user'] == jdata['post-author']:
+    if comm[COM_USER] == jdata[POST_AUTHOR]:
       comment_user_style = "comment-head-ljuser"
 
-    if comm['userpic'] is None:
-      print("Warning: user '%s' does not have userpic!" % comm['user'])
+    if comm[COM_USERPIC] is None:
+      print("Warning: user '%s' does not have userpic!" % comm[COM_USER])
 
-    offset = int(comm["level"]) * 20
+    offset = int(comm[COM_LEVEL]) * 20
     out += ( """
 <div style=\"border: solid 0px black; padding: 2px; padding-left: %dpx; \">
   <table>
@@ -153,8 +184,8 @@ def make_post_html_page(main_dir, postid):
   </td></tr>
   </table>
 </div>
-""" ) % (offset, comment_user_style, "../" + comm['userpic'],
-         comm['user'], comm['date'], comm['thread-url'], comm['text'])
+""" ) % (offset, comment_user_style, "../" + comm[COM_USERPIC],
+         comm[COM_USER], comm[COM_DATE], comm[COM_THREADURL], comm[COM_TEXT])
 
   out += "</body>"
   out += "</html>"
@@ -184,5 +215,5 @@ if __name__=='__main__':
 
   with open(fdata, "r") as f:
     jdata = json.load(f)
-    for p in jdata['index-posts']:
-      make_post_html_page(ljuser, p['index-post-id'])
+    for p in jdata[INDEX_POSTS]:
+      make_post_html_page(ljuser, p[INDEX_POST_ID])

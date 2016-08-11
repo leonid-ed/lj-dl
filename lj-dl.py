@@ -10,8 +10,8 @@ import pprint
 from html.parser import HTMLParser
 
 
-INDEX_DATE    = "index-date"
-INDEX_POSTS   = "index-posts"
+INDEX_DATE        = "index-date"
+INDEX_POSTS       = "index-posts"
 INDEX_POST_DATE   = "index-post-date"
 INDEX_POST_HEADER = "index-post-header"
 INDEX_POST_TAGS   = "index-post-tags"
@@ -23,6 +23,7 @@ POST_AUTHOR   = "post-author"
 POST_DATE     = "post-date"
 POST_TEXT     = "post-text"
 POST_COMPAGES = "post-comment-pages"
+POST_COMMENTS = "post-comments"
 POST_LINK     = "post-link"
 POST_TAGS     = "post-tags"
 POST_ID       = "post-id"
@@ -118,7 +119,7 @@ class LJPostParser(HTMLParser):
       elif tag == "br":
         pass
       else:
-        self.post[POST_TEXT] += " </%s> " % tag
+        self.post[POST_TEXT] += (" </%s> " % tag)
       return
 
     # handle tags
@@ -139,11 +140,43 @@ class LJPostParser(HTMLParser):
     if self.state[-1] == PS_HEADER:
       self.post[POST_HEADER] = data.strip()
     elif self.state[-1] == PS_TEXT:
-      self.post[POST_TEXT] += data;
+      self.post[POST_TEXT] += data
     elif self.state[-1] == PS_DATE:
-      self.post[POST_DATE] += data;
+      self.post[POST_DATE] += data
     elif self.state[-1] == PS_AUTHOR:
-      self.post[POST_AUTHOR] += data;
+      self.post[POST_AUTHOR] += data
+
+
+class LJCommentParser(HTMLParser):
+  def __init__(self, post, comment):
+    HTMLParser.__init__(self)
+    self.comment = comment
+    self.post    = post
+
+  def handle_starttag(self, tag, attrs):
+    # include given tag
+    self.comment[COM_TEXT] += ("<%s " % tag)
+    for (k, v) in attrs:
+      # images
+      if tag == "img" and k == "src":
+        filename = get_file(
+          addr=v,
+          directory=self.post[POST_MAIN_DIR],
+          postid=self.post[POST_ID],
+          files=self.post[POST_FILES]
+        )
+        if filename: v = filename
+
+      self.comment[COM_TEXT] += ("%s = \"%s\" " % (k, v))
+    self.comment[COM_TEXT] += ">"
+
+  def handle_endtag(self, tag):
+    if tag == "br":
+      return
+    self.comment[COM_TEXT] += (" </%s> " % tag)
+
+  def handle_data(self, data):
+    self.comment[COM_TEXT] += data
 
 
 def execSubprocess(cmd):
@@ -246,12 +279,13 @@ COM_LEVEL     = 'level'
 COM_THREAD    = 'thread'
 COM_THREADURL = 'thread-url'
 
-def extract_comments(page_content, comments, files):
+def extract_comments(page_content, post):
   m = re.search('^.*Site.page = (.+);', page_content, re.MULTILINE)
   if m is None:
     print("Error: Parsing failed")
     return
 
+  comments = post[POST_COMMENTS]
   comment_json = json.loads(m.group(1))['comments']
   # pprint.pprint(comment_json)
   # exit(0)
@@ -261,7 +295,6 @@ def extract_comments(page_content, comments, files):
         if 'collapsed' in jc.keys():
           if jc['collapsed'] == 0:
             com = {}
-            com[COM_TEXT] = jc['article']
             com[COM_ABOVE] = jc['above']
             com[COM_BELOW] = jc['below']
             com[COM_USER] = jc['uname']
@@ -271,12 +304,17 @@ def extract_comments(page_content, comments, files):
             com[COM_DATE] = jc['ctime']
             com[COM_DATETS] = jc['ctime_ts']
             com[COM_LEVEL] = jc['level']
+
+            com[COM_TEXT] = ""
+            comment_parser = LJCommentParser(post, com)
+            comment_parser.feed(jc['article'])
+
             comments.append(com)
             comments[0][com[COM_THREAD]] = 1
           else:
             if 'thread_url' in jc.keys():
               (page, err) = get_webpage_content(jc['thread_url'])
-              extract_comments(page, comments, files)
+              extract_comments(page, post)
 
     elif 'more' in jc.keys() and jc['more'] > 1:
       if 'actions' in jc.keys():
@@ -284,93 +322,92 @@ def extract_comments(page_content, comments, files):
           href = jc['actions'][0]['href']
           print("Need to expand thread '%s' (%s comments):" % (href, jc['more']))
           (page, err) = get_webpage_content(href)
-          extract_comments(page, comments, files)
+          extract_comments(page, post)
 
 # MAIN
-page_addr = sys.argv[1]
+if __name__=='__main__':
+  page_addr = sys.argv[1]
 
-m = re.search("(?:/*)([\w\-]+)\.livejournal.com/(\d+)\.\w*", page_addr)
-if m is None:
-  print("Error: Parsing '%s' failed" % (page_addr))
-  exit(2)
+  m = re.search("(?:/*)([\w\-]+)\.livejournal.com/(\d+)\.\w*", page_addr)
+  if m is None:
+    print("Error: Parsing '%s' failed" % (page_addr))
+    exit(2)
 
-ljuser = m.group(1)
-postid = m.group(2)
-print("ljuser: '%s', postid: '%s'" % (ljuser, postid))
+  ljuser = m.group(1)
+  postid = m.group(2)
+  print("ljuser: '%s', postid: '%s'" % (ljuser, postid))
 
-if not os.path.exists("./" + ljuser):
-  os.makedirs("./" + ljuser)
+  if not os.path.exists("./" + ljuser):
+    os.makedirs("./" + ljuser)
 
-index = {}
-index[INDEX_DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-index[INDEX_POSTS] = []
-index[INDEX_FILES] = {}
+  index = {}
+  index[INDEX_DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  index[INDEX_POSTS] = []
+  index[INDEX_FILES] = {}
 
-(page_content, err) = get_webpage_content(page_addr)
-if err:
-  exit(2)
+  (page_content, err) = get_webpage_content(page_addr)
+  if err:
+    exit(2)
 
-post = {}
-post[POST_MAIN_DIR] = ljuser
-post[POST_ID]       = postid
-post[POST_FILES]    = index[INDEX_FILES]
+  post = {}
+  post[POST_MAIN_DIR] = ljuser
+  post[POST_ID]       = postid
+  post[POST_FILES]    = index[INDEX_FILES]
+  post[POST_COMMENTS] = []
 
-parser = LJPostParser(post)
-print("Parsing the post...")
-parser.feed(page_content)
-post[POST_LINK] = page_addr
-# print(post)
-# exit(0)
+  post_parser = LJPostParser(post)
+  print("Parsing the post...")
+  post_parser.feed(page_content)
+  post[POST_LINK] = page_addr
+  # print(post)
+  # exit(0)
 
-if post.get(POST_COMPAGES) is None:
-  post[POST_COMPAGES] = []
-  post[POST_COMPAGES].append("/%s.html" % postid)
+  if post.get(POST_COMPAGES) is None:
+    post[POST_COMPAGES] = []
+    post[POST_COMPAGES].append("/%s.html" % postid)
 
-print("Parsing the comments (%d page(s) found)..." % len(post[POST_COMPAGES]))
-comments = []
-threads = {}
-comments.append(threads)
+  print("Parsing the comments (%d page(s) found)..." % len(post[POST_COMPAGES]))
+  threads = {}
+  post[POST_COMMENTS].append(threads)
 
-for p in post[POST_COMPAGES]:
-  link = "%s.livejournal.com%s" % (ljuser, p)
-  (page_content, err) = get_webpage_content(link)
-  if err: continue
-  extract_comments(page_content, comments, post[POST_FILES])
+  for p in post[POST_COMPAGES]:
+    link = "%s.livejournal.com%s" % (ljuser, p)
+    (page_content, err) = get_webpage_content(link)
+    if err: continue
+    extract_comments(page_content, post)
 
-pics = {}
-pic = None
-directory = "./%s" % ljuser
-for com in comments[1:]:
-  if com[COM_USERPIC]:
-    pic = get_userpic(com[COM_USERPIC], directory, pics)
-  else:
-    pic = get_userpic(PIC_NOUSERPIC, directory, pics)
+  post[POST_COMMENTS] = post[POST_COMMENTS][1:]
+  pics = {}
+  pic = None
+  directory = "./%s" % ljuser
+  for com in post[POST_COMMENTS]:
+    if com[COM_USERPIC]:
+      pic = get_userpic(com[COM_USERPIC], directory, pics)
+    else:
+      pic = get_userpic(PIC_NOUSERPIC, directory, pics)
 
-  if pic:
-    com[COM_USERPIC] = pic
+    if pic:
+      com[COM_USERPIC] = pic
 
-# pprint.pprint(comments)
-outfilename = "%s/%s.data" % (ljuser, postid)
-with open(outfilename, 'w+') as out:
-  # pop redundant fields
-  post.pop(POST_FILES)
+  outfilename = "%s/%s.data" % (ljuser, postid)
+  with open(outfilename, 'w+') as out:
+    # pop redundant fields
+    post.pop(POST_FILES)
+    # pprint.pprint(post, out)
+    json.dump(post, out, ensure_ascii=False, indent=2)
 
-  post['comments'] = comments[1:]
-  # pprint.pprint(post, out)
-  json.dump(post, out, ensure_ascii=False, indent=2)
+  print("Summary: %d comments have been saved to file '%s'" %
+    (len(post[POST_COMMENTS]), outfilename))
 
-print("Summary: %d comments have been saved to file '%s'" %
-  (len(comments[1:]), outfilename))
+  index_post = {}
+  index_post[INDEX_POST_ID]     = postid
+  index_post[INDEX_POST_HEADER] = post[POST_HEADER]
+  index_post[INDEX_POST_DATE]   = post[POST_DATE]
+  index_post[INDEX_POST_TAGS]   = post[POST_TAGS]
 
-index_post = {}
-index_post[INDEX_POST_ID]     = postid
-index_post[INDEX_POST_HEADER] = post[POST_HEADER]
-index_post[INDEX_POST_DATE]   = post[POST_DATE]
-index_post[INDEX_POST_TAGS]   = post[POST_TAGS]
+  index[INDEX_POSTS].append(index_post)
 
-index[INDEX_POSTS].append(index_post)
-
-outfilename = "%s/index.data" % (ljuser)
-with open(outfilename, 'w+') as out:
-  json.dump(index, out, ensure_ascii=False, indent=2)
+  outfilename = "%s/index.data" % (ljuser)
+  with open(outfilename, 'w+') as out:
+    json.dump(index, out, ensure_ascii=False, indent=2)
 
