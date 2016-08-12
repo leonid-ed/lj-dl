@@ -320,7 +320,7 @@ def extract_comments(page_content, post):
       if 'actions' in jc.keys():
         if 'href' in jc['actions'][0]:
           href = jc['actions'][0]['href']
-          print("Need to expand thread '%s' (%s comments):" % (href, jc['more']))
+          print("Expanding thread '%s' (%s comments):" % (href, jc['more']))
           (page, err) = get_webpage_content(href)
           extract_comments(page, post)
 
@@ -337,17 +337,31 @@ if __name__=='__main__':
   postid = m.group(2)
   print("ljuser: '%s', postid: '%s'" % (ljuser, postid))
 
-  if not os.path.exists("./" + ljuser):
-    os.makedirs("./" + ljuser)
+  main_dir = "./%s" % ljuser
+  if not os.path.exists(main_dir):
+    os.makedirs(main_dir)
 
-  index = {}
+  index = None
+  findex = "%s/index.data" % main_dir
+  if not os.path.isfile(findex):
+    index = {}
+    index[INDEX_POSTS] = {}
+    index[INDEX_FILES] = {}
+  else:
+    with open(findex, "r") as f:
+      index = json.load(f)
+      print("Found index file '%s' (%d posts, %d files)"
+        % (findex, len(index[INDEX_POSTS]), (len(index[INDEX_FILES])))
+      )
+
   index[INDEX_DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-  index[INDEX_POSTS] = []
-  index[INDEX_FILES] = {}
+
+  if postid in index[INDEX_POSTS]:
+    print("Post %s is already saved. Passed" % postid)
+    exit(0)
 
   (page_content, err) = get_webpage_content(page_addr)
-  if err:
-    exit(2)
+  if err: exit(2)
 
   post = {}
   post[POST_MAIN_DIR] = ljuser
@@ -405,7 +419,7 @@ if __name__=='__main__':
   index_post[INDEX_POST_DATE]   = post[POST_DATE]
   index_post[INDEX_POST_TAGS]   = post[POST_TAGS]
 
-  index[INDEX_POSTS].append(index_post)
+  index[INDEX_POSTS][postid] = index_post
 
   outfilename = "%s/index.data" % (ljuser)
   with open(outfilename, 'w+') as out:

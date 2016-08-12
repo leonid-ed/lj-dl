@@ -215,5 +215,6 @@ if __name__=='__main__':
 
   with open(fdata, "r") as f:
     jdata = json.load(f)
-    for p in jdata[INDEX_POSTS]:
-      make_post_html_page(ljuser, p[INDEX_POST_ID])
+
+  for p in jdata[INDEX_POSTS].values():
+    make_post_html_page(ljuser, p[INDEX_POST_ID])
