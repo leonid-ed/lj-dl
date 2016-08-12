@@ -3,10 +3,10 @@
 import sys
 import os
 import subprocess
+import urllib.request
 import datetime
 import re
 import json
-import pprint
 from html.parser import HTMLParser
 
 
@@ -63,7 +63,10 @@ class LJPostParser(HTMLParser):
             postid=self.post[POST_ID],
             files=self.post[POST_FILES]
           )
-          if filename: v = filename
+          if filename:
+            v = filename
+          else:
+            pass
 
         self.post[POST_TEXT] += ("%s = \"%s\" " % (k, v))
       self.post[POST_TEXT] += ">"
@@ -201,10 +204,12 @@ def get_file(addr, directory, postid, files):
 
   filename = "%s/file%d%s" % (file_dir, len(files), fileext)
 
-  print("Downloading file '%s'" % addr)
-  (out, err) = execSubprocess("wget -nv %s -O %s" % (addr, filename))
-  if err:
-    print("Error: Downloading '%s' failed: %s" % (addr, err))
+  try:
+    local_filename, headers = urllib.request.urlretrieve(addr, filename)
+    length = headers['Content-Length']
+    print("Downloading file '%s' --> '%s' [%s]" % (addr, filename, length))
+  except urllib.error.URLError as e:
+    print("Error: Downloading file '%s' failed (%s)" % (addr, e.reason))
     return None
 
   filename = "../%s/file%d%s" % (postid, len(files), fileext)
@@ -243,10 +248,12 @@ def get_userpic(addr, directory, pics):
     filename = "userpics/%s/%s" % (user_dir, user_pic)
     return filename
 
-  print("Downloading userpic '%s'" % addr)
-  (out, err) = execSubprocess("wget -nv %s -O %s" % (addr, filename))
-  if err:
-    print("Error: Downloading '%s' failed: %s" % (addr, err))
+  try:
+    local_filename, headers = urllib.request.urlretrieve(addr, filename)
+    length = headers['Content-Length']
+    print("Downloading userpic '%s' --> '%s' [%s]" % (addr, filename, length))
+  except urllib.error.URLError as e:
+    print("Error: Downloading userpic '%s' failed (%s)" % (addr, e.reason))
     return None
 
   pics[addr] = 1
@@ -255,17 +262,17 @@ def get_userpic(addr, directory, pics):
 
 
 def get_webpage_content(addr):
-  print("Downloading '%s'..." % addr)
-  (out, err) = execSubprocess("wget %s -q -O -" % addr)
-  if err:
-    print("Error: Downloading '%s' failed: %s" % (addr, err))
-  if out:
-    out = out.decode('UTF-8')
+  err = None
+  out = None
+  try:
+    response = urllib.request.urlopen(addr)
+    out = response.read().decode('UTF-8')
+    length = response.info()['Content-Length']
+    print("Downloading content of web page '%s'... [%s]" % (addr, length))
+  except urllib.error.URLError as e:
+    print("Error: Downloading content of web page '%s' failed (%s)" % (addr, e.reason))
+    err = e.reason
   return (out, err)
-
-if len(sys.argv) < 2:
-  print("Error: Too few params")
-  exit(1)
 
 
 COM_TEXT      = 'text'
@@ -326,6 +333,10 @@ def extract_comments(page_content, post):
 
 # MAIN
 if __name__=='__main__':
+  if len(sys.argv) < 2:
+    print("Error: Too few params")
+    exit(1)
+
   page_addr = sys.argv[1]
 
   m = re.search("(?:/*)([\w\-]+)\.livejournal.com/(\d+)\.\w*", page_addr)
@@ -385,7 +396,7 @@ if __name__=='__main__':
   post[POST_COMMENTS].append(threads)
 
   for p in post[POST_COMPAGES]:
-    link = "%s.livejournal.com%s" % (ljuser, p)
+    link = "http://%s.livejournal.com%s" % (ljuser, p)
     (page_content, err) = get_webpage_content(link)
     if err: continue
     extract_comments(page_content, post)
