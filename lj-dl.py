@@ -10,6 +10,7 @@ import json
 from html.parser import HTMLParser
 
 
+INDEX_LJUSER      = "index-ljuser"
 INDEX_DATE        = "index-date"
 INDEX_POSTS       = "index-posts"
 INDEX_POST_DATE   = "index-post-date"
@@ -294,7 +295,6 @@ def extract_comments(page_content, post):
 
   comments = post[POST_COMMENTS]
   comment_json = json.loads(m.group(1))['comments']
-  # pprint.pprint(comment_json)
   # exit(0)
   for jc in comment_json:
     if 'thread' in jc.keys():
@@ -331,6 +331,79 @@ def extract_comments(page_content, post):
           (page, err) = get_webpage_content(href)
           extract_comments(page, post)
 
+def save_json_to_file(js, filename):
+  with open(filename, 'w+') as out:
+    json.dump(js, out, ensure_ascii=False, indent=2)
+
+def add_post_to_index(postid, index):
+  if postid in index[INDEX_POSTS]:
+    print("Post %s is already saved. Passed" % postid)
+    return
+
+  (page_content, err) = get_webpage_content(page_addr)
+  if err: exit(2)
+
+  post = {}
+  post[POST_ID]       = postid
+  post[POST_MAIN_DIR] = index[INDEX_LJUSER]
+  post[POST_FILES]    = index[INDEX_FILES]
+  post[POST_COMMENTS] = []
+
+  post_parser = LJPostParser(post)
+  print("Parsing the post...")
+  post_parser.feed(page_content)
+  post[POST_LINK] = page_addr
+  # print(post)
+  # exit(0)
+
+  if post.get(POST_COMPAGES) is None:
+    post[POST_COMPAGES] = []
+    post[POST_COMPAGES].append("/%s.html" % postid)
+
+  print("Parsing the comments (%d page(s) found)..." % len(post[POST_COMPAGES]))
+  threads = {}
+  post[POST_COMMENTS].append(threads)
+
+  for p in post[POST_COMPAGES]:
+    link = "http://%s.livejournal.com%s" % (index[INDEX_LJUSER], p)
+    (page_content, err) = get_webpage_content(link)
+    if err: continue
+    extract_comments(page_content, post)
+
+  post[POST_COMMENTS] = post[POST_COMMENTS][1:]
+  pics = {}
+  pic = None
+  directory = "./%s" % index[INDEX_LJUSER]
+  for com in post[POST_COMMENTS]:
+    if com[COM_USERPIC]:
+      pic = get_userpic(com[COM_USERPIC], directory, pics)
+    else:
+      pic = get_userpic(PIC_NOUSERPIC, directory, pics)
+
+    if pic:
+      com[COM_USERPIC] = pic
+
+  # pop redundant fields
+  post.pop(POST_FILES)
+
+  outfilename = "%s/%s.data" % (index[INDEX_LJUSER], postid)
+  save_json_to_file(post, outfilename)
+
+  print("Summary: %d comments have been saved to file '%s'" %
+    (len(post[POST_COMMENTS]), outfilename))
+
+  index_post = {}
+  index_post[INDEX_POST_ID]     = postid
+  index_post[INDEX_POST_HEADER] = post[POST_HEADER]
+  index_post[INDEX_POST_DATE]   = post[POST_DATE]
+  index_post[INDEX_POST_TAGS]   = post[POST_TAGS]
+
+  index[INDEX_POSTS][postid] = index_post
+
+  outfilename = "%s/index.data" % (index[INDEX_LJUSER])
+  save_json_to_file(index, outfilename)
+
+
 # MAIN
 if __name__=='__main__':
   if len(sys.argv) < 2:
@@ -358,6 +431,7 @@ if __name__=='__main__':
     index = {}
     index[INDEX_POSTS] = {}
     index[INDEX_FILES] = {}
+    index[INDEX_LJUSER] = ljuser
   else:
     with open(findex, "r") as f:
       index = json.load(f)
@@ -367,72 +441,4 @@ if __name__=='__main__':
 
   index[INDEX_DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-  if postid in index[INDEX_POSTS]:
-    print("Post %s is already saved. Passed" % postid)
-    exit(0)
-
-  (page_content, err) = get_webpage_content(page_addr)
-  if err: exit(2)
-
-  post = {}
-  post[POST_MAIN_DIR] = ljuser
-  post[POST_ID]       = postid
-  post[POST_FILES]    = index[INDEX_FILES]
-  post[POST_COMMENTS] = []
-
-  post_parser = LJPostParser(post)
-  print("Parsing the post...")
-  post_parser.feed(page_content)
-  post[POST_LINK] = page_addr
-  # print(post)
-  # exit(0)
-
-  if post.get(POST_COMPAGES) is None:
-    post[POST_COMPAGES] = []
-    post[POST_COMPAGES].append("/%s.html" % postid)
-
-  print("Parsing the comments (%d page(s) found)..." % len(post[POST_COMPAGES]))
-  threads = {}
-  post[POST_COMMENTS].append(threads)
-
-  for p in post[POST_COMPAGES]:
-    link = "http://%s.livejournal.com%s" % (ljuser, p)
-    (page_content, err) = get_webpage_content(link)
-    if err: continue
-    extract_comments(page_content, post)
-
-  post[POST_COMMENTS] = post[POST_COMMENTS][1:]
-  pics = {}
-  pic = None
-  directory = "./%s" % ljuser
-  for com in post[POST_COMMENTS]:
-    if com[COM_USERPIC]:
-      pic = get_userpic(com[COM_USERPIC], directory, pics)
-    else:
-      pic = get_userpic(PIC_NOUSERPIC, directory, pics)
-
-    if pic:
-      com[COM_USERPIC] = pic
-
-  outfilename = "%s/%s.data" % (ljuser, postid)
-  with open(outfilename, 'w+') as out:
-    # pop redundant fields
-    post.pop(POST_FILES)
-    # pprint.pprint(post, out)
-    json.dump(post, out, ensure_ascii=False, indent=2)
-
-  print("Summary: %d comments have been saved to file '%s'" %
-    (len(post[POST_COMMENTS]), outfilename))
-
-  index_post = {}
-  index_post[INDEX_POST_ID]     = postid
-  index_post[INDEX_POST_HEADER] = post[POST_HEADER]
-  index_post[INDEX_POST_DATE]   = post[POST_DATE]
-  index_post[INDEX_POST_TAGS]   = post[POST_TAGS]
-
-  index[INDEX_POSTS][postid] = index_post
-
-  outfilename = "%s/index.data" % (ljuser)
-  with open(outfilename, 'w+') as out:
-    json.dump(index, out, ensure_ascii=False, indent=2)
-
+  add_post_to_index(index=index, postid=postid)
