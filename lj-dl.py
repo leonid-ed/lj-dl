@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from constants import (ENUM_INDEX, ENUM_POST, ENUM_COM)
 import sys
 import os
 import subprocess
@@ -9,27 +10,6 @@ import re
 import json
 from html.parser import HTMLParser
 
-
-INDEX_LJUSER      = "index-ljuser"
-INDEX_DATE        = "index-date"
-INDEX_POSTS       = "index-posts"
-INDEX_POST_DATE   = "index-post-date"
-INDEX_POST_HEADER = "index-post-header"
-INDEX_POST_TAGS   = "index-post-tags"
-INDEX_POST_ID     = "index-post-id"
-INDEX_FILES       = "index-files"
-
-POST_HEADER   = "post-header"
-POST_AUTHOR   = "post-author"
-POST_DATE     = "post-date"
-POST_TEXT     = "post-text"
-POST_COMPAGES = "post-comment-pages"
-POST_COMMENTS = "post-comments"
-POST_LINK     = "post-link"
-POST_TAGS     = "post-tags"
-POST_ID       = "post-id"
-POST_FILES    = "post-files"
-POST_MAIN_DIR = "post-main-dir"
 
 PS_HEADER   = 'ps-header'
 PS_TEXT     = 'ps-text'
@@ -54,23 +34,23 @@ class LJPostParser(HTMLParser):
             self.state.pop()
             return
       # include given tag
-      self.post[POST_TEXT] += ("<%s " % tag)
+      self.post[ENUM_POST.TEXT] += ("<%s " % tag)
       for (k, v) in attrs:
         # images
         if tag == "img" and k == "src":
           filename = get_file(
             addr=v,
-            directory=self.post[POST_MAIN_DIR],
-            postid=self.post[POST_ID],
-            files=self.post[POST_FILES]
+            directory=self.post[ENUM_POST.MAIN_DIR],
+            postid=self.post[ENUM_POST.ID],
+            files=self.post[ENUM_POST.FILES]
           )
           if filename:
             v = filename
           else:
             pass
 
-        self.post[POST_TEXT] += ("%s = \"%s\" " % (k, v))
-      self.post[POST_TEXT] += ">"
+        self.post[ENUM_POST.TEXT] += ("%s = \"%s\" " % (k, v))
+      self.post[ENUM_POST.TEXT] += ">"
       return
 
     # handle tags
@@ -81,37 +61,37 @@ class LJPostParser(HTMLParser):
         (k, v) = attrs[0]
         if k == "class" and re.search("b-pager-pages", v):
           self.state.append(PS_COMPAGES)
-          self.post[POST_COMPAGES] = []
+          self.post[ENUM_POST.COMPAGES] = []
     elif tag == "a":
       if attrs and len(attrs) > 1:
         (k, v) = attrs[1]
         if k == "class" and re.search("i-ljuser-username", v):
           self.state.append(PS_AUTHOR)
-          self.post[POST_AUTHOR] = ""
+          self.post[ENUM_POST.AUTHOR] = ""
       elif attrs and len(attrs) == 1 and len(self.state) > 0 and self.state[-1] == PS_COMPAGES:
         (k, v) = attrs[0]
         if k == "href":
-          self.post[POST_COMPAGES].append(v)
+          self.post[ENUM_POST.COMPAGES].append(v)
     elif tag == "time":
       if attrs and len(attrs) > 0:
         (k, v) = attrs[0]
         if k == "class" and re.search("b-singlepost-author-date published dt-published", v):
           self.state.append(PS_DATE)
-          self.post[POST_DATE] = ""
+          self.post[ENUM_POST.DATE] = ""
     elif tag == "article":
       if attrs and len(attrs) > 0:
         (k, v) = attrs[0]
         if k == "class" and re.search("b-singlepost-body entry-content e-content", v):
           self.state.append(PS_TEXT)
-          self.post[POST_TEXT] = ""
+          self.post[ENUM_POST.TEXT] = ""
     elif tag == "meta":
       if attrs and len(attrs) > 1:
         (k0, v0) = attrs[0]
         (k1, v1) = attrs[1]
         if k0 == "property" and v0 == "article:tag" and k1 == "content":
-          if self.post.get(POST_TAGS, None) is None:
-            self.post[POST_TAGS] = {}
-          self.post[POST_TAGS][v1] = 1
+          if self.post.get(ENUM_POST.TAGS, None) is None:
+            self.post[ENUM_POST.TAGS] = {}
+          self.post[ENUM_POST.TAGS][v1] = 1
 
 
   def handle_endtag(self, tag):
@@ -119,11 +99,11 @@ class LJPostParser(HTMLParser):
 
     if self.state[-1] == PS_TEXT:
       if tag == "article":
-        s = self.state.pop()
+        self.state.pop()
       elif tag == "br":
         pass
       else:
-        self.post[POST_TEXT] += (" </%s> " % tag)
+        self.post[ENUM_POST.TEXT] += (" </%s> " % tag)
       return
 
     # handle tags
@@ -142,13 +122,13 @@ class LJPostParser(HTMLParser):
     if len(self.state) == 0: return
 
     if self.state[-1] == PS_HEADER:
-      self.post[POST_HEADER] = data.strip()
+      self.post[ENUM_POST.HEADER] = data.strip()
     elif self.state[-1] == PS_TEXT:
-      self.post[POST_TEXT] += data
+      self.post[ENUM_POST.TEXT] += data
     elif self.state[-1] == PS_DATE:
-      self.post[POST_DATE] += data
+      self.post[ENUM_POST.DATE] += data
     elif self.state[-1] == PS_AUTHOR:
-      self.post[POST_AUTHOR] += data
+      self.post[ENUM_POST.AUTHOR] += data
 
 
 class LJCommentParser(HTMLParser):
@@ -159,28 +139,28 @@ class LJCommentParser(HTMLParser):
 
   def handle_starttag(self, tag, attrs):
     # include given tag
-    self.comment[COM_TEXT] += ("<%s " % tag)
+    self.comment[ENUM_COM.TEXT] += ("<%s " % tag)
     for (k, v) in attrs:
       # images
       if tag == "img" and k == "src":
         filename = get_file(
           addr=v,
-          directory=self.post[POST_MAIN_DIR],
-          postid=self.post[POST_ID],
-          files=self.post[POST_FILES]
+          directory=self.post[ENUM_POST.MAIN_DIR],
+          postid=self.post[ENUM_POST.ID],
+          files=self.post[ENUM_POST.FILES]
         )
         if filename: v = filename
 
-      self.comment[COM_TEXT] += ("%s = \"%s\" " % (k, v))
-    self.comment[COM_TEXT] += ">"
+      self.comment[ENUM_COM.TEXT] += ("%s = \"%s\" " % (k, v))
+    self.comment[ENUM_COM.TEXT] += ">"
 
   def handle_endtag(self, tag):
     if tag == "br":
       return
-    self.comment[COM_TEXT] += (" </%s> " % tag)
+    self.comment[ENUM_COM.TEXT] += (" </%s> " % tag)
 
   def handle_data(self, data):
-    self.comment[COM_TEXT] += data
+    self.comment[ENUM_COM.TEXT] += data
 
 
 def execSubprocess(cmd):
@@ -276,24 +256,13 @@ def get_webpage_content(addr):
   return (out, err)
 
 
-COM_TEXT      = 'text'
-COM_USER      = 'user'
-COM_USERPIC   = 'userpic'
-COM_DATE      = 'date'
-COM_DATETS    = 'ts'
-COM_ABOVE     = 'above'
-COM_BELOW     = 'below'
-COM_LEVEL     = 'level'
-COM_THREAD    = 'thread'
-COM_THREADURL = 'thread-url'
-
 def extract_comments(page_content, post):
   m = re.search('^.*Site.page = (.+);', page_content, re.MULTILINE)
   if m is None:
     print("Error: Parsing failed")
     return
 
-  comments = post[POST_COMMENTS]
+  comments = post[ENUM_POST.COMMENTS]
   comment_json = json.loads(m.group(1))['comments']
   # exit(0)
   for jc in comment_json:
@@ -302,22 +271,22 @@ def extract_comments(page_content, post):
         if 'collapsed' in jc.keys():
           if jc['collapsed'] == 0:
             com = {}
-            com[COM_ABOVE] = jc['above']
-            com[COM_BELOW] = jc['below']
-            com[COM_USER] = jc['uname']
-            com[COM_USERPIC] = jc['userpic']
-            com[COM_THREAD] = jc['thread']
-            com[COM_THREADURL] = jc['thread_url']
-            com[COM_DATE] = jc['ctime']
-            com[COM_DATETS] = jc['ctime_ts']
-            com[COM_LEVEL] = jc['level']
+            com[ENUM_COM.ABOVE]     = jc['above']
+            com[ENUM_COM.BELOW]     = jc['below']
+            com[ENUM_COM.USER]      = jc['uname']
+            com[ENUM_COM.USERPIC]   = jc['userpic']
+            com[ENUM_COM.THREAD]    = jc['thread']
+            com[ENUM_COM.THREADURL] = jc['thread_url']
+            com[ENUM_COM.DATE]      = jc['ctime']
+            com[ENUM_COM.DATETS]    = jc['ctime_ts']
+            com[ENUM_COM.LEVEL]     = jc['level']
 
-            com[COM_TEXT] = ""
+            com[ENUM_COM.TEXT] = ""
             comment_parser = LJCommentParser(post, com)
             comment_parser.feed(jc['article'])
 
             comments.append(com)
-            comments[0][com[COM_THREAD]] = 1
+            comments[0][com[ENUM_COM.THREAD]] = 1
           else:
             if 'thread_url' in jc.keys():
               (page, err) = get_webpage_content(jc['thread_url'])
@@ -336,7 +305,7 @@ def save_json_to_file(js, filename):
     json.dump(js, out, ensure_ascii=False, indent=2)
 
 def add_post_to_index(postid, index):
-  if postid in index[INDEX_POSTS]:
+  if postid in index[ENUM_INDEX.POSTS]:
     print("Post %s is already saved. Passed" % postid)
     return
 
@@ -344,63 +313,63 @@ def add_post_to_index(postid, index):
   if err: exit(2)
 
   post = {}
-  post[POST_ID]       = postid
-  post[POST_MAIN_DIR] = index[INDEX_LJUSER]
-  post[POST_FILES]    = index[INDEX_FILES]
-  post[POST_COMMENTS] = []
+  post[ENUM_POST.ID]       = postid
+  post[ENUM_POST.MAIN_DIR] = index[ENUM_INDEX.LJUSER]
+  post[ENUM_POST.FILES]    = index[ENUM_INDEX.FILES]
+  post[ENUM_POST.COMMENTS] = []
 
   post_parser = LJPostParser(post)
   print("Parsing the post...")
   post_parser.feed(page_content)
-  post[POST_LINK] = page_addr
+  post[ENUM_POST.LINK] = page_addr
   # print(post)
   # exit(0)
 
-  if post.get(POST_COMPAGES) is None:
-    post[POST_COMPAGES] = []
-    post[POST_COMPAGES].append("/%s.html" % postid)
+  if post.get(ENUM_POST.COMPAGES) is None:
+    post[ENUM_POST.COMPAGES] = []
+    post[ENUM_POST.COMPAGES].append("/%s.html" % postid)
 
-  print("Parsing the comments (%d page(s) found)..." % len(post[POST_COMPAGES]))
+  print("Parsing the comments (%d page(s) found)..." % len(post[ENUM_POST.COMPAGES]))
   threads = {}
-  post[POST_COMMENTS].append(threads)
+  post[ENUM_POST.COMMENTS].append(threads)
 
-  for p in post[POST_COMPAGES]:
-    link = "http://%s.livejournal.com%s" % (index[INDEX_LJUSER], p)
+  for p in post[ENUM_POST.COMPAGES]:
+    link = "http://%s.livejournal.com%s" % (index[ENUM_INDEX.LJUSER], p)
     (page_content, err) = get_webpage_content(link)
     if err: continue
     extract_comments(page_content, post)
 
-  post[POST_COMMENTS] = post[POST_COMMENTS][1:]
+  post[ENUM_POST.COMMENTS] = post[ENUM_POST.COMMENTS][1:]
   pics = {}
   pic = None
-  directory = "./%s" % index[INDEX_LJUSER]
-  for com in post[POST_COMMENTS]:
-    if com[COM_USERPIC]:
-      pic = get_userpic(com[COM_USERPIC], directory, pics)
+  directory = "./%s" % index[ENUM_INDEX.LJUSER]
+  for com in post[ENUM_POST.COMMENTS]:
+    if com[ENUM_COM.USERPIC]:
+      pic = get_userpic(com[ENUM_COM.USERPIC], directory, pics)
     else:
       pic = get_userpic(PIC_NOUSERPIC, directory, pics)
 
     if pic:
-      com[COM_USERPIC] = pic
+      com[ENUM_COM.USERPIC] = pic
 
   # pop redundant fields
-  post.pop(POST_FILES)
+  post.pop(ENUM_POST.FILES)
 
-  outfilename = "%s/%s.data" % (index[INDEX_LJUSER], postid)
+  outfilename = "%s/%s.data" % (index[ENUM_INDEX.LJUSER], postid)
   save_json_to_file(post, outfilename)
 
   print("Summary: %d comments have been saved to file '%s'" %
-    (len(post[POST_COMMENTS]), outfilename))
+    (len(post[ENUM_POST.COMMENTS]), outfilename))
 
   index_post = {}
-  index_post[INDEX_POST_ID]     = postid
-  index_post[INDEX_POST_HEADER] = post[POST_HEADER]
-  index_post[INDEX_POST_DATE]   = post[POST_DATE]
-  index_post[INDEX_POST_TAGS]   = post[POST_TAGS]
+  index_post[ENUM_INDEX.POST_ID]     = postid
+  index_post[ENUM_INDEX.POST_HEADER] = post[ENUM_POST.HEADER]
+  index_post[ENUM_INDEX.POST_DATE]   = post[ENUM_POST.DATE]
+  index_post[ENUM_INDEX.POST_TAGS]   = post[ENUM_POST.TAGS]
 
-  index[INDEX_POSTS][postid] = index_post
+  index[ENUM_INDEX.POSTS][postid] = index_post
 
-  outfilename = "%s/index.data" % (index[INDEX_LJUSER])
+  outfilename = "%s/index.data" % (index[ENUM_INDEX.LJUSER])
   save_json_to_file(index, outfilename)
 
 
@@ -429,16 +398,16 @@ if __name__=='__main__':
   findex = "%s/index.data" % main_dir
   if not os.path.isfile(findex):
     index = {}
-    index[INDEX_POSTS] = {}
-    index[INDEX_FILES] = {}
-    index[INDEX_LJUSER] = ljuser
+    index[ENUM_INDEX.POSTS] = {}
+    index[ENUM_INDEX.FILES] = {}
+    index[ENUM_INDEX.LJUSER] = ljuser
   else:
     with open(findex, "r") as f:
       index = json.load(f)
       print("Found index file '%s' (%d posts, %d files)"
-        % (findex, len(index[INDEX_POSTS]), (len(index[INDEX_FILES])))
+        % (findex, len(index[ENUM_INDEX.POSTS]), (len(index[ENUM_INDEX.FILES])))
       )
 
-  index[INDEX_DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
   add_post_to_index(index=index, postid=postid)
