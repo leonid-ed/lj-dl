@@ -55,7 +55,9 @@ class LJPostParser(HTMLParser):
 
     # handle tags
     if tag == "h1":
-      self.state.append(PS_HEADER)
+      (k, v) = attrs[0]
+      if k == "class" and re.search("b-singlepost-title entry-title p-name", v):
+        self.state.append(PS_HEADER)
     elif tag == "ul":
       if attrs and len(attrs) > 0:
         (k, v) = attrs[0]
@@ -249,6 +251,7 @@ def get_webpage_content(addr):
     response = urllib.request.urlopen(addr)
     out = response.read().decode('UTF-8')
     length = response.info()['Content-Length']
+    if length == None: length = 'unknown size'
     print("Downloading content of web page '%s'... [%s]" % (addr, length))
   except urllib.error.URLError as e:
     print("Error: Downloading content of web page '%s' failed (%s)" % (addr, e.reason))
