@@ -252,7 +252,7 @@ def get_webpage_content(addr):
     out = response.read().decode('UTF-8')
     length = response.info()['Content-Length']
     if length == None: length = 'unknown size'
-    print("Downloading content of web page '%s'... [%s]" % (addr, length))
+    print("Downloading content of '%s'... [%s]" % (addr, length))
   except urllib.error.URLError as e:
     print("Error: Downloading content of web page '%s' failed (%s)" % (addr, e.reason))
     err = e.reason
@@ -331,10 +331,16 @@ def save_json_to_file(js, filename):
   with open(filename, 'w+') as out:
     json.dump(js, out, ensure_ascii=False, indent=2)
 
+def confirm(question):
+  answer = ""
+  while answer not in ['y', 'n']:
+    answer = str(input("%s (y/n): " % question)).lower().strip()
+  return answer == 'y'
+
 def add_post_to_index(postid, index):
   if postid in index[ENUM_INDEX.POSTS]:
-    print("Post %s is already saved. Passed" % postid)
-    return
+    if not confirm("Post %s is already saved. Do you want to update it?" % postid):
+      return
 
   (page_content, err) = get_webpage_content(page_addr)
   if err: exit(2)
