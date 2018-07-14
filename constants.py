@@ -5,6 +5,7 @@ def constant(f):
     return f()
   return property(fget, fset)
 
+
 class _EnumIndex(object):
   @constant
   def LJUSER():
@@ -31,7 +32,6 @@ class _EnumIndex(object):
   def FILES():
     return "index-files"
 
-ENUM_INDEX = _EnumIndex()
 
 class _EnumPost(object):
   @constant
@@ -68,8 +68,6 @@ class _EnumPost(object):
   def MAIN_DIR():
     return "post-main-dir"
 
-ENUM_POST = _EnumPost()
-
 
 class _EnumCom(object):
   @constant
@@ -102,7 +100,11 @@ class _EnumCom(object):
   @constant
   def THREADURL():
     return 'thread-url'
+  @constant
+  def DELETED():
+    return 'deleted'
 
-ENUM_COM = _EnumCom()
 
-
+ENUM_INDEX = _EnumIndex()
+ENUM_POST  = _EnumPost()
+ENUM_COM   = _EnumCom()

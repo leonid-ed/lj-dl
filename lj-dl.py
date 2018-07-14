@@ -291,9 +291,30 @@ def extract_comments(page_content, post):
             comments.append(com)
             comments[0][com[ENUM_COM.THREAD]] = 1
           else:
-            if 'thread_url' in jc.keys():
-              (page, err) = get_webpage_content(jc['thread_url'])
-              extract_comments(page, post)
+            if jc['deleted'] == 1:
+              com = {}
+              com[ENUM_COM.ABOVE]     = jc['above']
+              com[ENUM_COM.BELOW]     = jc['below']
+              com[ENUM_COM.USER]      = None
+              com[ENUM_COM.USERPIC]   = None
+              com[ENUM_COM.DELETED]   = jc['deleted']
+              com[ENUM_COM.THREAD]    = jc['thread']
+              com[ENUM_COM.THREADURL] = jc['thread_url']
+              com[ENUM_COM.DATE]      = jc['ctime']
+              com[ENUM_COM.DATETS]    = jc['ctime_ts']
+              com[ENUM_COM.LEVEL]     = jc['level']
+
+              com[ENUM_COM.TEXT] = "deleted"
+              comments.append(com)
+              comments[0][com[ENUM_COM.THREAD]] = 1
+            else:
+              if 'thread_url' in jc.keys():
+                # import pdb; pdb.set_trace()
+                (page, err) = get_webpage_content(jc['thread_url'])
+                if err:
+                  print("Error: %s" % err)
+                else:
+                  extract_comments(page, post)
 
     elif 'more' in jc.keys() and jc['more'] > 1:
       if 'actions' in jc.keys():
@@ -301,7 +322,10 @@ def extract_comments(page_content, post):
           href = jc['actions'][0]['href']
           print("Expanding thread '%s' (%s comments):" % (href, jc['more']))
           (page, err) = get_webpage_content(href)
-          extract_comments(page, post)
+          if err:
+            print("Error: %s" % err)
+          else:
+            extract_comments(page, post)
 
 def save_json_to_file(js, filename):
   with open(filename, 'w+') as out:
@@ -339,7 +363,9 @@ def add_post_to_index(postid, index):
   for p in post[ENUM_POST.COMPAGES]:
     link = "http://%s.livejournal.com%s" % (index[ENUM_INDEX.LJUSER], p)
     (page_content, err) = get_webpage_content(link)
-    if err: continue
+    if err:
+      print("Error: %s" % err)
+      continue
     extract_comments(page_content, post)
 
   post[ENUM_POST.COMMENTS] = post[ENUM_POST.COMMENTS][1:]
@@ -347,7 +373,7 @@ def add_post_to_index(postid, index):
   pic = None
   directory = "./%s" % index[ENUM_INDEX.LJUSER]
   for com in post[ENUM_POST.COMMENTS]:
-    if com[ENUM_COM.USERPIC]:
+    if com.get(ENUM_COM.USERPIC):
       pic = get_userpic(com[ENUM_COM.USERPIC], directory, pics)
     else:
       pic = get_userpic(PIC_NOUSERPIC, directory, pics)
