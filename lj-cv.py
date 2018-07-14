@@ -119,7 +119,30 @@ def make_post_html_page(main_dir, postid):
 </div>
 """) % (len(jdata[ENUM_POST.COMMENTS]))
 
+  thread_levels = []           # [  (thread_id, thread_level)  ]
   for comm in jdata[ENUM_POST.COMMENTS]:
+
+    thread_above = comm[ENUM_COM.ABOVE]
+    thread_level = int(comm[ENUM_COM.LEVEL])
+
+    if not thread_above:
+      thread_levels = [ (comm[ENUM_COM.THREAD], thread_level) ]
+    else:
+      (prev_tread_id, prev_tread_level) = thread_levels[-1]
+      if thread_above == prev_tread_id:
+        thread_level = prev_tread_level + 1
+        thread_levels.append( (comm[ENUM_COM.THREAD], thread_level) )
+      else:
+        while True:
+          thread_levels.pop()
+          # if len(thread_levels) == 0:
+          #   import pdb; pdb.set_trace()
+          (prev_tread_id, prev_tread_level) = thread_levels[-1]
+          if thread_above == prev_tread_id:
+            thread_level = prev_tread_level + 1
+            thread_levels.append( (comm[ENUM_COM.THREAD], thread_level) )
+            break
+
     comment_user_style = "comment-head"
     if comm[ENUM_COM.USER] == jdata[ENUM_POST.AUTHOR]:
       comment_user_style = "comment-head-ljuser"
@@ -127,7 +150,7 @@ def make_post_html_page(main_dir, postid):
     if comm[ENUM_COM.USERPIC] is None:
       print("Warning: user '%s' does not have userpic!" % comm[ENUM_COM.USER])
 
-    offset = int(comm[ENUM_COM.LEVEL]) * 20
+    offset = thread_level * 20
     out += ( """
 <div style=\"border: solid 0px black; padding: 2px; padding-left: %dpx; \">
   <table>
