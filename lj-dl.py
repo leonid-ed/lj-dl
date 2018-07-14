@@ -182,6 +182,9 @@ def get_file(addr, directory, postid, files):
   else:
     fileext = "." + m.group(1)
 
+  if len(fileext) > 5 or '/' in fileext or '.' in fileext[1:]:
+    fileext = '.xxx'
+
   if addr in files:
     return files[addr]
 
@@ -193,7 +196,9 @@ def get_file(addr, directory, postid, files):
     print("Downloading file '%s' --> '%s' [%s]" % (addr, filename, length))
   except urllib.error.URLError as e:
     print("Error: Downloading file '%s' failed (%s)" % (addr, e.reason))
-    return None
+    return "no-picture.png"
+  except FileNotFoundError as e:
+    import pdb; pdb.set_trace()
 
   filename = "../%s/file%d%s" % (postid, len(files), fileext)
   files[addr] = filename
