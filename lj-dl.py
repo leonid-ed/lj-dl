@@ -10,6 +10,7 @@ import re
 import json
 from html.parser import HTMLParser
 
+import helpers
 
 PS_HEADER   = 'ps-header'
 PS_TEXT     = 'ps-text'
@@ -288,6 +289,7 @@ def extract_comments(page_content, post):
             com[ENUM_COM.DATE]      = jc['ctime']
             com[ENUM_COM.DATETS]    = jc['ctime_ts']
             com[ENUM_COM.LEVEL]     = jc['level']
+            com[ENUM_COM.PARENT]    = jc['parent']
 
             com[ENUM_COM.TEXT] = ""
             comment_parser = LJCommentParser(post, com)
@@ -308,6 +310,7 @@ def extract_comments(page_content, post):
               com[ENUM_COM.DATE]      = jc['ctime']
               com[ENUM_COM.DATETS]    = jc['ctime_ts']
               com[ENUM_COM.LEVEL]     = jc['level']
+              com[ENUM_COM.PARENT]    = jc['parent']
 
               com[ENUM_COM.TEXT] = "deleted"
               comments.append(com)
@@ -336,15 +339,10 @@ def save_json_to_file(js, filename):
   with open(filename, 'w+') as out:
     json.dump(js, out, ensure_ascii=False, indent=2)
 
-def confirm(question):
-  answer = ""
-  while answer not in ['y', 'n']:
-    answer = str(input("%s (y/n): " % question)).lower().strip()
-  return answer == 'y'
 
 def add_post_to_index(postid, index):
   if postid in index[ENUM_INDEX.POSTS]:
-    if not confirm("Post %s is already saved. Do you want to update it?" % postid):
+    if not helpers.confirm("Post %s is already saved. Do you want to update it?" % postid):
       return
 
   (page_content, err) = get_webpage_content(page_addr)

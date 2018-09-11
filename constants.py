@@ -103,7 +103,9 @@ class _EnumCom(object):
   @constant
   def DELETED():
     return 'deleted'
-
+  @constant
+  def PARENT():
+    return 'parent'
 
 ENUM_INDEX = _EnumIndex()
 ENUM_POST  = _EnumPost()

@@ -124,12 +124,13 @@ def make_post_html_page(main_dir, postid):
 
     thread_above = comm[ENUM_COM.ABOVE]
     thread_level = int(comm[ENUM_COM.LEVEL])
+    thread_parent = comm[ENUM_COM.PARENT]
 
-    if not thread_above:
+    if not thread_parent:
       thread_levels = [ (comm[ENUM_COM.THREAD], thread_level) ]
     else:
       (prev_tread_id, prev_tread_level) = thread_levels[-1]
-      if thread_above == prev_tread_id:
+      if thread_parent == prev_tread_id:
         thread_level = prev_tread_level + 1
         thread_levels.append( (comm[ENUM_COM.THREAD], thread_level) )
       else:
@@ -138,7 +139,7 @@ def make_post_html_page(main_dir, postid):
           # if len(thread_levels) == 0:
           #   import pdb; pdb.set_trace()
           (prev_tread_id, prev_tread_level) = thread_levels[-1]
-          if thread_above == prev_tread_id:
+          if thread_parent == prev_tread_id:
             thread_level = prev_tread_level + 1
             thread_levels.append( (comm[ENUM_COM.THREAD], thread_level) )
             break
