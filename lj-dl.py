@@ -205,6 +205,12 @@ def get_file(addr, directory, postid, files):
     return "no-picture.png"
   except FileNotFoundError as e:
     import pdb; pdb.set_trace()
+  except ValueError as e:
+    print("Error: Invalid address '%s'" % (addr))
+    return "no-picture.png"
+  except http.client.IncompleteRead as e:
+    print("Error: http.client.IncompleteRead exception occured")
+    return "no-picture.png"
 
   filename = "../%s/file%d%s" % (postid, len(files), fileext)
   files[addr] = filename
@@ -259,7 +265,11 @@ def get_webpage_content(addr):
   err = None
   out = None
   try:
-    response = urllib.request.urlopen(addr)
+    headers = {
+      'Cookie': "adult_explicit=1"
+    }
+    request = urllib.request.Request(addr, headers=headers)
+    response = urllib.request.urlopen(request)
     out = response.read().decode('UTF-8')
     length = response.info()['Content-Length']
     if length == None: length = 'unknown size'
@@ -277,7 +287,11 @@ def extract_comments(page_content, post):
     return
 
   comments = post[ENUM_POST.COMMENTS]
-  comment_json = json.loads(m.group(1))['comments']
+  comment_json = json.loads(m.group(1)).get('comments')
+  if comment_json is None:
+    print("Error: Did not manage to obtain the comment section :( (postid: %s)" % post[ENUM_POST.ID])
+    import pdb; pdb.set_trace()
+    exit(1)
   # exit(0)
   for jc in comment_json:
     if 'thread' in jc.keys():
@@ -303,7 +317,7 @@ def extract_comments(page_content, post):
             comments.append(com)
             comments[0][com[ENUM_COM.THREAD]] = 1
           else:
-            if jc['deleted'] == 1:
+            if jc['deleted'] == 1 or jc['actions'] is None:
               com = {}
               com[ENUM_COM.ABOVE]     = jc['above']
               com[ENUM_COM.BELOW]     = jc['below']
@@ -322,7 +336,8 @@ def extract_comments(page_content, post):
               comments[0][com[ENUM_COM.THREAD]] = 1
             else:
               if 'thread_url' in jc.keys():
-                # import pdb; pdb.set_trace()
+                # if jc['thread_url'] == ...
+                  # import pdb; pdb.set_trace()
                 (page, err) = get_webpage_content(jc['thread_url'])
                 if err:
                   print("Error: %s" % err)
@@ -358,6 +373,7 @@ def add_post_to_index(postid, index):
 
   post = {}
   post[ENUM_POST.ID]       = postid
+  post[ENUM_POST.HEADER]   = ""
   post[ENUM_POST.MAIN_DIR] = index[ENUM_INDEX.LJUSER]
   post[ENUM_POST.FILES]    = {}
   post[ENUM_POST.TAGS]     = {}
