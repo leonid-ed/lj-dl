@@ -92,8 +92,6 @@ class LJPostParser(HTMLParser):
         (k0, v0) = attrs[0]
         (k1, v1) = attrs[1]
         if k0 == "property" and v0 == "article:tag" and k1 == "content":
-          if self.post.get(ENUM_POST.TAGS, None) is None:
-            self.post[ENUM_POST.TAGS] = {}
           self.post[ENUM_POST.TAGS][v1] = 1
 
 
@@ -352,6 +350,7 @@ def add_post_to_index(postid, index):
   post[ENUM_POST.ID]       = postid
   post[ENUM_POST.MAIN_DIR] = index[ENUM_INDEX.LJUSER]
   post[ENUM_POST.FILES]    = {}
+  post[ENUM_POST.TAGS]     = {}
   post[ENUM_POST.COMMENTS] = []
 
   post_parser = LJPostParser(post)
