@@ -28,9 +28,6 @@ class _EnumIndex(object):
   @constant
   def POST_ID():
     return "index-post-id"
-  @constant
-  def FILES():
-    return "index-files"
 
 
 class _EnumPost(object):

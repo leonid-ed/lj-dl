@@ -351,7 +351,7 @@ def add_post_to_index(postid, index):
   post = {}
   post[ENUM_POST.ID]       = postid
   post[ENUM_POST.MAIN_DIR] = index[ENUM_INDEX.LJUSER]
-  post[ENUM_POST.FILES]    = index[ENUM_INDEX.FILES]
+  post[ENUM_POST.FILES]    = {}
   post[ENUM_POST.COMMENTS] = []
 
   post_parser = LJPostParser(post)
@@ -437,13 +437,12 @@ if __name__=='__main__':
   if not os.path.isfile(findex):
     index = {}
     index[ENUM_INDEX.POSTS] = {}
-    index[ENUM_INDEX.FILES] = {}
     index[ENUM_INDEX.LJUSER] = ljuser
   else:
     with open(findex, "r") as f:
       index = json.load(f)
-      print("Found index file '%s' (%d posts, %d files)"
-        % (findex, len(index[ENUM_INDEX.POSTS]), (len(index[ENUM_INDEX.FILES])))
+      print("Found index file '%s' (%d posts)"
+        % (findex, len(index[ENUM_INDEX.POSTS]))
       )
 
   index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
