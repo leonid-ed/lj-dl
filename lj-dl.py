@@ -12,6 +12,13 @@ from html.parser import HTMLParser
 
 import helpers
 
+ANSW_NO  = 0
+ANSW_YES = 1
+ANSW_ASK = 2
+
+OPT_REWRITE_POSTS_EXISTING = ANSW_NO
+
+
 PS_HEADER   = 'ps-header'
 PS_TEXT     = 'ps-text'
 PS_DATE     = 'ps-date'
@@ -340,7 +347,10 @@ def save_json_to_file(js, filename):
 
 def add_post_to_index(postid, index):
   if postid in index[ENUM_INDEX.POSTS]:
-    if not helpers.confirm("Post %s is already saved. Do you want to update it?" % postid):
+    if  OPT_REWRITE_POSTS_EXISTING == ANSW_ASK:
+      if not helpers.confirm("Post %s is already saved. Do you want to update it?" % postid):
+        return
+    elif OPT_REWRITE_POSTS_EXISTING == ANSW_NO:
       return
 
   (page_content, err) = get_webpage_content(page_addr)
