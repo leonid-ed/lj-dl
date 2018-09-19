@@ -7,6 +7,49 @@ import re
 import os.path
 import json
 
+def make_index_html_page(main_dir, posts):
+
+  out = "<!DOCTYPE HTML>\n"
+  out += "<html><head>\n"
+  out += "<meta charset=\"utf-8\">\n"
+  out += "<title>%s</title>\n" % main_dir
+
+  out += "</head>\n"
+  out += "<body>\n"
+
+  out += """
+<div class=\"post-head\" ">
+  <table>
+"""
+  for p in posts.values():
+    link = "<a href=\"./%s.html\">%s</a>" % (p[ENUM_INDEX.POST_ID], "%s")
+    out += """
+  <tr>
+    <td>%s</td>
+    <td>%s</td>
+    <td>%s</td>
+  </tr>
+""" % (
+    (link % p[ENUM_INDEX.POST_DATE]),
+    (link % p[ENUM_INDEX.POST_HEADER]),
+    (", ".join(p[ENUM_INDEX.POST_TAGS].keys())),
+  )
+    # import pdb; pdb.set_trace()
+
+  out += """
+  </table>
+</div>
+"""
+  out += "</body>"
+  out += "</html>"
+
+  filename = "%s/html/index.html" % (main_dir)
+  with open(filename, 'w+') as f:
+    f.write(out)
+
+  print("Index HTML file '%s' has been generated successfully" % filename)
+  return 0
+
 
 def make_post_html_page(main_dir, postid):
   fdata = "%s/%s.data" % (main_dir, postid)
@@ -209,8 +252,17 @@ if __name__=='__main__':
   if not os.path.exists(html_dir):
     os.makedirs("./" + html_dir)
 
+  # TODO: add copying no-picture.svg to html directory
+
   with open(fdata, "r") as f:
     jdata = json.load(f)
 
-  for p in jdata[ENUM_INDEX.POSTS].values():
-    make_post_html_page(ljuser, p[ENUM_INDEX.POST_ID])
+  # sort posts by creation time
+  jdata[ENUM_INDEX.POSTS] = {
+    p : jdata[ENUM_INDEX.POSTS][p] for p in sorted(jdata[ENUM_INDEX.POSTS])
+  }
+
+  make_index_html_page(ljuser, jdata[ENUM_INDEX.POSTS])
+
+  # for p in jdata[ENUM_INDEX.POSTS].values():
+  #   make_post_html_page(ljuser, p[ENUM_INDEX.POST_ID])
