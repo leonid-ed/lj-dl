@@ -6,6 +6,7 @@ import subprocess
 import re
 import os.path
 import json
+import shutil
 
 def make_index_html_page(main_dir, posts):
 
@@ -252,7 +253,16 @@ if __name__=='__main__':
   if not os.path.exists(html_dir):
     os.makedirs("./" + html_dir)
 
-  # TODO: add copying no-picture.svg to html directory
+  # copying no-picture.svg to html directory
+  nopicture_filename = "no-picture.svg"
+  if not os.path.isfile("./%s/%s" % (html_dir, nopicture_filename)):
+    if os.path.isfile("./%s" % nopicture_filename):
+      shutil.copyfile(
+        "./%s" % nopicture_filename,
+        "./%s/%s" % (html_dir, nopicture_filename)
+      )
+    else:
+      print("Error: file './%s' doesn't exist" % nopicture_filename)
 
   with open(fdata, "r") as f:
     jdata = json.load(f)
@@ -264,5 +274,5 @@ if __name__=='__main__':
 
   make_index_html_page(ljuser, jdata[ENUM_INDEX.POSTS])
 
-  # for p in jdata[ENUM_INDEX.POSTS].values():
-  #   make_post_html_page(ljuser, p[ENUM_INDEX.POST_ID])
+  for p in jdata[ENUM_INDEX.POSTS].values():
+    make_post_html_page(ljuser, p[ENUM_INDEX.POST_ID])
