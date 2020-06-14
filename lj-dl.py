@@ -16,7 +16,7 @@ ANSW_NO  = 0
 ANSW_YES = 1
 ANSW_ASK = 2
 
-OPT_REWRITE_POSTS_EXISTING = ANSW_NO
+OPT_REWRITE_POSTS_EXISTING = ANSW_ASK
 
 
 PS_HEADER   = 'ps-header'
@@ -62,23 +62,14 @@ class LJPostParser(HTMLParser):
       return
 
     # handle tags
-    if tag == "h1":
-      (k, v) = attrs[0]
-      if k == "class" and re.search("b-singlepost-title entry-title p-name", v):
-        self.state.append(PS_HEADER)
-    elif tag == "ul":
+    if tag == "ul":
       if attrs and len(attrs) > 0:
         (k, v) = attrs[0]
         if k == "class" and re.search("b-pager-pages", v):
           self.state.append(PS_COMPAGES)
           self.post[ENUM_POST.COMPAGES] = []
     elif tag == "a":
-      if attrs and len(attrs) > 1:
-        (k, v) = attrs[1]
-        if k == "class" and re.search("i-ljuser-username", v):
-          self.state.append(PS_AUTHOR)
-          self.post[ENUM_POST.AUTHOR] = ""
-      elif attrs and len(attrs) == 1 and len(self.state) > 0 and self.state[-1] == PS_COMPAGES:
+      if attrs and len(attrs) == 1 and len(self.state) > 0 and self.state[-1] == PS_COMPAGES:
         (k, v) = attrs[0]
         if k == "href":
           self.post[ENUM_POST.COMPAGES].append(v)
@@ -115,12 +106,7 @@ class LJPostParser(HTMLParser):
       return
 
     # handle tags
-    if tag == "h1":
-      assert self.state[-1] == PS_HEADER
-      self.state.pop()
-    elif tag == "ul" and self.state[-1] == PS_COMPAGES:
-      self.state.pop()
-    elif tag == "a" and self.state[-1] == PS_AUTHOR:
+    if tag == "ul" and self.state[-1] == PS_COMPAGES:
       self.state.pop()
     elif tag == "time":
       assert self.state[-1] == PS_DATE
@@ -129,14 +115,10 @@ class LJPostParser(HTMLParser):
   def handle_data(self, data):
     if len(self.state) == 0: return
 
-    if self.state[-1] == PS_HEADER:
-      self.post[ENUM_POST.HEADER] = data.strip()
-    elif self.state[-1] == PS_TEXT:
+    if self.state[-1] == PS_TEXT:
       self.post[ENUM_POST.TEXT] += data
     elif self.state[-1] == PS_DATE:
       self.post[ENUM_POST.DATE] += data
-    elif self.state[-1] == PS_AUTHOR:
-      self.post[ENUM_POST.AUTHOR] += data
 
 
 class LJCommentParser(HTMLParser):
@@ -280,16 +262,36 @@ def get_webpage_content(addr):
   return (out, err)
 
 
-def extract_comments(page_content, post):
+def extract_json_content(page_content):
   m = re.search('^.*Site.page = (.+);', page_content, re.MULTILINE)
   if m is None:
-    print("Error: Parsing failed")
-    return
+    print("Error: Parsing failed (no json content)")
+    return None
+  return json.loads(m.group(1))
 
+
+def extract_author(json_content, post):
+  entry_json = json_content.get('entry')
+  if entry_json:
+    post[ENUM_POST.AUTHOR] = entry_json['poster'].strip()
+  else:
+    print("Error: Parsing failed (no author in json content)")
+
+
+def extract_header(json_content, post):
+  entry_json = json_content.get('entry')
+  if entry_json:
+    post[ENUM_POST.HEADER] = entry_json['title'].strip()
+  else:
+    print("Error: Parsing failed (no title in json content)")
+
+
+def extract_comments(json_content, post):
   comments = post[ENUM_POST.COMMENTS]
-  comment_json = json.loads(m.group(1)).get('comments')
+  comment_json = json_content.get('comments')
   if comment_json is None:
-    print("Error: Did not manage to obtain the comment section :( (postid: %s)" % post[ENUM_POST.ID])
+    print("Error: Did not manage to obtain the comment section :( (postid: %s)"
+        % post[ENUM_POST.ID])
     import pdb; pdb.set_trace()
     exit(1)
   # exit(0)
@@ -342,7 +344,7 @@ def extract_comments(page_content, post):
                 if err:
                   print("Error: %s" % err)
                 else:
-                  extract_comments(page, post)
+                  extract_comments(extract_json_content(page), post)
 
     elif 'more' in jc.keys() and jc['more'] > 1:
       if 'actions' in jc.keys():
@@ -353,7 +355,7 @@ def extract_comments(page_content, post):
           if err:
             print("Error: %s" % err)
           else:
-            extract_comments(page, post)
+            extract_comments(extract_json_content(page), post)
 
 def save_json_to_file(js, filename):
   with open(filename, 'w+') as out:
@@ -363,7 +365,8 @@ def save_json_to_file(js, filename):
 def add_post_to_index(postid, index):
   if postid in index[ENUM_INDEX.POSTS]:
     if  OPT_REWRITE_POSTS_EXISTING == ANSW_ASK:
-      if not helpers.confirm("Post %s is already saved. Do you want to update it?" % postid):
+      if not helpers.confirm(
+          "Post %s is already saved. Do you want to update it?" % postid):
         return
     elif OPT_REWRITE_POSTS_EXISTING == ANSW_NO:
       return
@@ -385,12 +388,16 @@ def add_post_to_index(postid, index):
   post[ENUM_POST.LINK] = page_addr
   # print(post)
   # exit(0)
+  json_content = extract_json_content(page_content)
+  extract_author(json_content, post)
+  extract_header(json_content, post)
 
   if post.get(ENUM_POST.COMPAGES) is None:
     post[ENUM_POST.COMPAGES] = []
     post[ENUM_POST.COMPAGES].append("/%s.html" % postid)
 
-  print("Parsing the comments (%d page(s) found)..." % len(post[ENUM_POST.COMPAGES]))
+  print("Parsing the comments (%d page(s) found)..."
+      % len(post[ENUM_POST.COMPAGES]))
   threads = {}
   post[ENUM_POST.COMMENTS].append(threads)
 
@@ -400,7 +407,8 @@ def add_post_to_index(postid, index):
     if err:
       print("Error: %s" % err)
       continue
-    extract_comments(page_content, post)
+    json_content = extract_json_content(page_content)
+    extract_comments(json_content, post)
 
   post[ENUM_POST.COMMENTS] = post[ENUM_POST.COMMENTS][1:]
   pics = {}
