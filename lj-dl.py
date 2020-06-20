@@ -37,13 +37,13 @@ class LJPostParser(HTMLParser):
       # stop condition
       if tag == "a":
         if attrs and len(attrs) > 0:
-          (k, v) = attrs[0]
+          k, v = attrs[0]
           if k == "name" and re.search("cutid1-end", v):
             self.state.pop()
             return
       # include given tag
       self.post[ENUM_POST.TEXT] += ("<%s " % tag)
-      for (k, v) in attrs:
+      for k, v in attrs:
         # images
         if tag == "img" and k == "src":
           filename = get_file(
@@ -64,31 +64,34 @@ class LJPostParser(HTMLParser):
     # handle tags
     if tag == "ul":
       if attrs and len(attrs) > 0:
-        (k, v) = attrs[0]
+        k, v = attrs[0]
         if k == "class" and re.search("b-pager-pages", v):
           self.state.append(PS_COMPAGES)
           self.post[ENUM_POST.COMPAGES] = []
     elif tag == "a":
-      if attrs and len(attrs) == 1 and len(self.state) > 0 and self.state[-1] == PS_COMPAGES:
-        (k, v) = attrs[0]
+      if (attrs and len(attrs) == 1 and len(self.state) > 0 and
+          self.state[-1] == PS_COMPAGES):
+        k, v = attrs[0]
         if k == "href":
           self.post[ENUM_POST.COMPAGES].append(v)
     elif tag == "time":
       if attrs and len(attrs) > 0:
-        (k, v) = attrs[0]
-        if k == "class" and re.search("b-singlepost-author-date published dt-published", v):
+        k, v = attrs[0]
+        if (k == "class" and
+            re.search("b-singlepost-author-date published dt-published", v)):
           self.state.append(PS_DATE)
           self.post[ENUM_POST.DATE] = ""
     elif tag == "article":
       if attrs and len(attrs) > 0:
-        (k, v) = attrs[0]
-        if k == "class" and re.search("b-singlepost-body entry-content e-content", v):
+        k, v = attrs[0]
+        if (k == "class" and
+            re.search("b-singlepost-body entry-content e-content", v)):
           self.state.append(PS_TEXT)
           self.post[ENUM_POST.TEXT] = ""
     elif tag == "meta":
       if attrs and len(attrs) > 1:
-        (k0, v0) = attrs[0]
-        (k1, v1) = attrs[1]
+        k0, v0 = attrs[0]
+        k1, v1 = attrs[1]
         if k0 == "property" and v0 == "article:tag" and k1 == "content":
           self.post[ENUM_POST.TAGS][v1] = 1
 
@@ -130,14 +133,14 @@ class LJCommentParser(HTMLParser):
   def handle_starttag(self, tag, attrs):
     # include given tag
     self.comment[ENUM_COM.TEXT] += ("<%s " % tag)
-    for (k, v) in attrs:
+    for k, v in attrs:
       # images
       if tag == "img" and k == "src":
         filename = get_file(
-          addr=v,
-          directory=self.post[ENUM_POST.MAIN_DIR],
-          postid=self.post[ENUM_POST.ID],
-          files=self.post[ENUM_POST.FILES]
+            addr=v,
+            directory=self.post[ENUM_POST.MAIN_DIR],
+            postid=self.post[ENUM_POST.ID],
+            files=self.post[ENUM_POST.FILES]
         )
         if filename: v = filename
 
@@ -257,9 +260,10 @@ def get_webpage_content(addr):
     if length == None: length = 'unknown size'
     print("Downloading content of '%s'... [%s]" % (addr, length))
   except urllib.error.URLError as e:
-    print("Error: Downloading content of web page '%s' failed (%s)" % (addr, e.reason))
+    print("Error: Downloading content of web page '%s' failed (%s)" %
+        (addr, e.reason))
     err = e.reason
-  return (out, err)
+  return out, err
 
 
 def extract_json_content(page_content):
@@ -300,19 +304,19 @@ def extract_comments(json_content, post):
       if not jc['thread'] in comments[0].keys():
         if 'collapsed' in jc.keys():
           if jc['collapsed'] == 0:
-            com = {}
-            com[ENUM_COM.ABOVE]     = jc['above']
-            com[ENUM_COM.BELOW]     = jc['below']
-            com[ENUM_COM.USER]      = jc['uname']
-            com[ENUM_COM.USERPIC]   = jc['userpic']
-            com[ENUM_COM.THREAD]    = jc['thread']
-            com[ENUM_COM.THREADURL] = jc['thread_url']
-            com[ENUM_COM.DATE]      = jc['ctime']
-            com[ENUM_COM.DATETS]    = jc['ctime_ts']
-            com[ENUM_COM.LEVEL]     = jc['level']
-            com[ENUM_COM.PARENT]    = jc['parent']
-
-            com[ENUM_COM.TEXT] = ""
+            com = {
+                ENUM_COM.ABOVE:     jc['above'],
+                ENUM_COM.BELOW:     jc['below'],
+                ENUM_COM.USER:      jc['uname'],
+                ENUM_COM.USERPIC:   jc['userpic'],
+                ENUM_COM.THREAD:    jc['thread'],
+                ENUM_COM.THREADURL: jc['thread_url'],
+                ENUM_COM.DATE:      jc['ctime'],
+                ENUM_COM.DATETS:    jc['ctime_ts'],
+                ENUM_COM.LEVEL:     jc['level'],
+                ENUM_COM.PARENT:    jc['parent'],
+                ENUM_COM.TEXT:      "",
+            }
             comment_parser = LJCommentParser(post, com)
             comment_parser.feed(jc['article'])
 
@@ -320,27 +324,27 @@ def extract_comments(json_content, post):
             comments[0][com[ENUM_COM.THREAD]] = 1
           else:
             if jc['deleted'] == 1 or jc['actions'] is None:
-              com = {}
-              com[ENUM_COM.ABOVE]     = jc['above']
-              com[ENUM_COM.BELOW]     = jc['below']
-              com[ENUM_COM.USER]      = None
-              com[ENUM_COM.USERPIC]   = None
-              com[ENUM_COM.DELETED]   = jc['deleted']
-              com[ENUM_COM.THREAD]    = jc['thread']
-              com[ENUM_COM.THREADURL] = jc['thread_url']
-              com[ENUM_COM.DATE]      = jc['ctime']
-              com[ENUM_COM.DATETS]    = jc['ctime_ts']
-              com[ENUM_COM.LEVEL]     = jc['level']
-              com[ENUM_COM.PARENT]    = jc['parent']
-
-              com[ENUM_COM.TEXT] = "deleted"
+              com = {
+                  ENUM_COM.ABOVE:     jc['above'],
+                  ENUM_COM.BELOW:     jc['below'],
+                  ENUM_COM.USER:      None,
+                  ENUM_COM.USERPIC:   None,
+                  ENUM_COM.DELETED:   jc['deleted'],
+                  ENUM_COM.THREAD:    jc['thread'],
+                  ENUM_COM.THREADURL: jc['thread_url'],
+                  ENUM_COM.DATE:      jc['ctime'],
+                  ENUM_COM.DATETS:    jc['ctime_ts'],
+                  ENUM_COM.LEVEL:     jc['level'],
+                  ENUM_COM.PARENT:    jc['parent'],
+                  ENUM_COM.TEXT:      "deleted",
+              }
               comments.append(com)
               comments[0][com[ENUM_COM.THREAD]] = 1
             else:
               if 'thread_url' in jc.keys():
                 # if jc['thread_url'] == ...
                   # import pdb; pdb.set_trace()
-                (page, err) = get_webpage_content(jc['thread_url'])
+                page, err = get_webpage_content(jc['thread_url'])
                 if err:
                   print("Error: %s" % err)
                 else:
@@ -351,7 +355,7 @@ def extract_comments(json_content, post):
         if 'href' in jc['actions'][0]:
           href = jc['actions'][0]['href']
           print("Expanding thread '%s' (%s comments):" % (href, jc['more']))
-          (page, err) = get_webpage_content(href)
+          page, err = get_webpage_content(href)
           if err:
             print("Error: %s" % err)
           else:
@@ -371,23 +375,21 @@ def add_post_to_index(postid, index):
     elif OPT_REWRITE_POSTS_EXISTING == ANSW_NO:
       return
 
-  (page_content, err) = get_webpage_content(page_addr)
+  page_content, err = get_webpage_content(page_addr)
   if err: exit(2)
 
-  post = {}
-  post[ENUM_POST.ID]       = postid
-  post[ENUM_POST.HEADER]   = ""
-  post[ENUM_POST.MAIN_DIR] = index[ENUM_INDEX.LJUSER]
-  post[ENUM_POST.FILES]    = {}
-  post[ENUM_POST.TAGS]     = {}
-  post[ENUM_POST.COMMENTS] = []
-
+  post = {
+      ENUM_POST.ID:       postid,
+      ENUM_POST.HEADER:   "",
+      ENUM_POST.MAIN_DIR: index[ENUM_INDEX.LJUSER],
+      ENUM_POST.FILES:    {},
+      ENUM_POST.TAGS:     {},
+      ENUM_POST.COMMENTS: [],
+  }
   post_parser = LJPostParser(post)
   print("Parsing the post...")
   post_parser.feed(page_content)
   post[ENUM_POST.LINK] = page_addr
-  # print(post)
-  # exit(0)
   json_content = extract_json_content(page_content)
   extract_author(json_content, post)
   extract_header(json_content, post)
@@ -396,14 +398,14 @@ def add_post_to_index(postid, index):
     post[ENUM_POST.COMPAGES] = []
     post[ENUM_POST.COMPAGES].append("/%s.html" % postid)
 
-  print("Parsing the comments (%d page(s) found)..."
-      % len(post[ENUM_POST.COMPAGES]))
+  print("Parsing the comments (%d page(s) found)..." %
+      len(post[ENUM_POST.COMPAGES]))
   threads = {}
   post[ENUM_POST.COMMENTS].append(threads)
 
   for p in post[ENUM_POST.COMPAGES]:
     link = "http://%s.livejournal.com%s" % (index[ENUM_INDEX.LJUSER], p)
-    (page_content, err) = get_webpage_content(link)
+    page_content, err = get_webpage_content(link)
     if err:
       print("Error: %s" % err)
       continue
@@ -430,14 +432,14 @@ def add_post_to_index(postid, index):
   save_json_to_file(post, outfilename)
 
   print("Summary: %d comments have been saved to file '%s'" %
-    (len(post[ENUM_POST.COMMENTS]), outfilename))
+      (len(post[ENUM_POST.COMMENTS]), outfilename))
 
-  index_post = {}
-  index_post[ENUM_INDEX.POST_ID]     = postid
-  index_post[ENUM_INDEX.POST_HEADER] = post[ENUM_POST.HEADER]
-  index_post[ENUM_INDEX.POST_DATE]   = post[ENUM_POST.DATE]
-  index_post[ENUM_INDEX.POST_TAGS]   = post[ENUM_POST.TAGS]
-
+  index_post = {
+      ENUM_INDEX.POST_ID:     postid,
+      ENUM_INDEX.POST_HEADER: post[ENUM_POST.HEADER],
+      ENUM_INDEX.POST_DATE:   post[ENUM_POST.DATE],
+      ENUM_INDEX.POST_TAGS:   post[ENUM_POST.TAGS],
+  }
   index[ENUM_INDEX.POSTS][postid] = index_post
 
   outfilename = "%s/index.data" % (index[ENUM_INDEX.LJUSER])
@@ -475,8 +477,7 @@ if __name__=='__main__':
     with open(findex, "r") as f:
       index = json.load(f)
       print("Found index file '%s' (%d posts)"
-        % (findex, len(index[ENUM_INDEX.POSTS]))
-      )
+          % (findex, len(index[ENUM_INDEX.POSTS])))
 
   index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
