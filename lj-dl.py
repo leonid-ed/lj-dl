@@ -12,12 +12,12 @@ from html.parser import HTMLParser
 
 import helpers
 
+
 ANSW_NO  = 0
 ANSW_YES = 1
 ANSW_ASK = 2
 
 OPT_REWRITE_POSTS_EXISTING = ANSW_ASK
-
 
 PS_HEADER   = 'ps-header'
 PS_TEXT     = 'ps-text'
@@ -25,6 +25,7 @@ PS_DATE     = 'ps-date'
 PS_AUTHOR   = 'ps-author'
 PS_TAG      = 'ps-tag'
 PS_COMPAGES = 'ps-comment-pages'
+
 
 class LJPostParser(HTMLParser):
   def __init__(self, post):
@@ -144,7 +145,7 @@ class LJCommentParser(HTMLParser):
         )
         if filename: v = filename
 
-      self.comment[ENUM_COM.TEXT] += ("%s = \"%s\" " % (k, v))
+      self.comment[ENUM_COM.TEXT] += "%s = \"%s\" " % (k, v)
     self.comment[ENUM_COM.TEXT] += ">"
 
   def handle_endtag(self, tag):
@@ -154,11 +155,6 @@ class LJCommentParser(HTMLParser):
 
   def handle_data(self, data):
     self.comment[ENUM_COM.TEXT] += data
-
-
-def execSubprocess(cmd):
-  proc = subprocess.Popen([ cmd ], stdout=subprocess.PIPE, shell=True)
-  return proc.communicate()
 
 
 def get_file(addr, directory, postid, files):
@@ -208,8 +204,7 @@ def get_userpic(addr, directory, pics):
   if not os.path.exists("./" + directory):
     os.makedirs("./" + directory)
 
-  user_dir = None
-  user_pic = None
+  user_dir = user_pic = None
 
   if addr == PIC_NOUSERPIC:
     user_dir = "/"
@@ -247,8 +242,7 @@ def get_userpic(addr, directory, pics):
 
 
 def get_webpage_content(addr):
-  err = None
-  out = None
+  err = out = None
   try:
     headers = {
       'Cookie': "adult_explicit=1"
