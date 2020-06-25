@@ -27,11 +27,92 @@ PS_TAG      = 'ps-tag'
 PS_COMPAGES = 'ps-comment-pages'
 
 
+class FileDownloader():
+
+  NO_PICTURE = '../../no-picture.svg" width="50" height="50'
+
+  def __init__(self, main_dir, sub_dir):
+    self.files = {}
+    self.files_to_download = {}
+    self.main_dir = main_dir
+    self.sub_dir = sub_dir
+    self.file_dir = "./{main_dir}/{sub_dir}".format(
+        main_dir=main_dir, sub_dir=sub_dir)
+    if not os.path.exists(self.file_dir):
+      os.makedirs(self.file_dir)
+
+  def plan_to_download(self, url):
+    file_id = '##%d##' % len(self.files_to_download)
+    self.files_to_download[file_id] = url
+    return file_id
+
+  def get_filename_by_id(self, file_id):
+    if file_id not in self.files:
+      raise LookupError
+
+    return self.files[file_id]
+
+  def compose_filename(self, url):
+    fileext = ""
+    m = re.search(".+\.(.+)$", url, re.MULTILINE)
+    if m is None:
+      print("Error: Parsing '%s' failed" % url)
+    else:
+      fileext = "." + m.group(1)
+
+    if len(fileext) > 5 or '/' in fileext or '.' in fileext[1:]:
+      fileext = '.xxx'
+
+    return "file%d%s" % (len(self.files), fileext)
+
+  def download_files(self):
+    for file_id, url in self.files_to_download.items():
+      self.files[file_id] = self.download_file(
+          url, self.compose_filename(url))
+
+  def decode_filenames_in_text(self, text):
+    if not text:
+      return text
+
+    file_ids = []
+    m_list = re.findall('##(\d+)##', text, re.MULTILINE)
+    if not m_list:
+      return text
+
+    for m in m_list:
+      find_id = '##%s##' % m
+      filename = self.get_filename_by_id(find_id)
+      text = text.replace(find_id, filename)
+
+    return text
+
+  def download_file(self, url, filename):
+    dest = '%s/%s' % (self.file_dir, filename)
+    try:
+      local_filename, headers = urllib.request.urlretrieve(url, dest)
+      length = headers['Content-Length']
+      print("Downloading file '%s' --> '%s' [%s]" % (url, dest, length))
+    except urllib.error.URLError as e:
+      print("Error: Downloading file '%s' failed (%s)" % (url, e.reason))
+      return self.NO_PICTURE
+    except FileNotFoundError as e:
+      import pdb; pdb.set_trace()
+    except ValueError as e:
+      print("Error: Invalid address '%s'" % (url))
+      return self.NO_PICTURE
+    except http.client.IncompleteRead as e:
+      print("Error: http.client.IncompleteRead exception occured")
+      return self.NO_PICTURE
+
+    return "../%s/%s" % (self.sub_dir, filename)
+
+
 class LJPostParser(HTMLParser):
-  def __init__(self, post):
+  def __init__(self, downloader, post):
     HTMLParser.__init__(self)
     self.state = []
     self.post = post
+    self.downloader = downloader
 
   def handle_starttag(self, tag, attrs):
     if len(self.state) > 0 and self.state[-1] == PS_TEXT:
@@ -47,18 +128,9 @@ class LJPostParser(HTMLParser):
       for k, v in attrs:
         # images
         if tag == "img" and k == "src":
-          filename = get_file(
-            addr=v,
-            directory=self.post[ENUM_POST.MAIN_DIR],
-            postid=self.post[ENUM_POST.ID],
-            files=self.post[ENUM_POST.FILES]
-          )
-          if filename:
-            v = filename
-          else:
-            pass
+          v = self.downloader.plan_to_download(v)
 
-        self.post[ENUM_POST.TEXT] += ("%s = \"%s\" " % (k, v))
+        self.post[ENUM_POST.TEXT] += "%s = \"%s\" " % (k, v)
       self.post[ENUM_POST.TEXT] += ">"
       return
 
@@ -126,24 +198,18 @@ class LJPostParser(HTMLParser):
 
 
 class LJCommentParser(HTMLParser):
-  def __init__(self, post, comment):
+  def __init__(self, downloader, comment):
     HTMLParser.__init__(self)
-    self.comment = comment
-    self.post    = post
+    self.comment    = comment
+    self.downloader = downloader
 
   def handle_starttag(self, tag, attrs):
     # include given tag
-    self.comment[ENUM_COM.TEXT] += ("<%s " % tag)
+    self.comment[ENUM_COM.TEXT] += "<%s " % tag
     for k, v in attrs:
       # images
       if tag == "img" and k == "src":
-        filename = get_file(
-            addr=v,
-            directory=self.post[ENUM_POST.MAIN_DIR],
-            postid=self.post[ENUM_POST.ID],
-            files=self.post[ENUM_POST.FILES]
-        )
-        if filename: v = filename
+        v = self.downloader.plan_to_download(v)
 
       self.comment[ENUM_COM.TEXT] += "%s = \"%s\" " % (k, v)
     self.comment[ENUM_COM.TEXT] += ">"
@@ -151,51 +217,10 @@ class LJCommentParser(HTMLParser):
   def handle_endtag(self, tag):
     if tag == "br":
       return
-    self.comment[ENUM_COM.TEXT] += (" </%s> " % tag)
+    self.comment[ENUM_COM.TEXT] += " </%s> " % tag
 
   def handle_data(self, data):
     self.comment[ENUM_COM.TEXT] += data
-
-
-def get_file(addr, directory, postid, files):
-  file_dir = "./%s/%s" % (directory, postid)
-  if not os.path.exists("./" + file_dir):
-    os.makedirs("./" + file_dir)
-
-  fileext = ""
-  m = re.search(".+\.(.+)$", addr, re.MULTILINE)
-  if m is None:
-    print("Error: Parsing '%s' failed" % addr)
-  else:
-    fileext = "." + m.group(1)
-
-  if len(fileext) > 5 or '/' in fileext or '.' in fileext[1:]:
-    fileext = '.xxx'
-
-  if addr in files:
-    return files[addr]
-
-  filename = "%s/file%d%s" % (file_dir, len(files), fileext)
-
-  try:
-    local_filename, headers = urllib.request.urlretrieve(addr, filename)
-    length = headers['Content-Length']
-    print("Downloading file '%s' --> '%s' [%s]" % (addr, filename, length))
-  except urllib.error.URLError as e:
-    print("Error: Downloading file '%s' failed (%s)" % (addr, e.reason))
-    return "no-picture.png"
-  except FileNotFoundError as e:
-    import pdb; pdb.set_trace()
-  except ValueError as e:
-    print("Error: Invalid address '%s'" % (addr))
-    return "no-picture.png"
-  except http.client.IncompleteRead as e:
-    print("Error: http.client.IncompleteRead exception occured")
-    return "no-picture.png"
-
-  filename = "../%s/file%d%s" % (postid, len(files), fileext)
-  files[addr] = filename
-  return filename
 
 
 PIC_NOUSERPIC = "http://l-stat.livejournal.net/img/userpics/userpic-user.png"
@@ -245,7 +270,7 @@ def get_webpage_content(addr):
   err = out = None
   try:
     headers = {
-      'Cookie': "adult_explicit=1"
+        'Cookie': "adult_explicit=1"
     }
     request = urllib.request.Request(addr, headers=headers)
     response = urllib.request.urlopen(request)
@@ -284,7 +309,7 @@ def extract_header(json_content, post):
     print("Error: Parsing failed (no title in json content)")
 
 
-def extract_comments(json_content, post):
+def extract_comments(json_content, post, downloader):
   comments = post[ENUM_POST.COMMENTS]
   comment_json = json_content.get('comments')
   if comment_json is None:
@@ -311,7 +336,7 @@ def extract_comments(json_content, post):
                 ENUM_COM.PARENT:    jc['parent'],
                 ENUM_COM.TEXT:      "",
             }
-            comment_parser = LJCommentParser(post, com)
+            comment_parser = LJCommentParser(downloader, com)
             comment_parser.feed(jc['article'])
 
             comments.append(com)
@@ -342,7 +367,7 @@ def extract_comments(json_content, post):
                 if err:
                   print("Error: %s" % err)
                 else:
-                  extract_comments(extract_json_content(page), post)
+                  extract_comments(extract_json_content(page), post, downloader)
 
     elif 'more' in jc.keys() and jc['more'] > 1:
       if 'actions' in jc.keys():
@@ -353,7 +378,7 @@ def extract_comments(json_content, post):
           if err:
             print("Error: %s" % err)
           else:
-            extract_comments(extract_json_content(page), post)
+            extract_comments(extract_json_content(page), post, downloader)
 
 def save_json_to_file(js, filename):
   with open(filename, 'w+') as out:
@@ -380,7 +405,10 @@ def add_post_to_index(postid, index):
       ENUM_POST.TAGS:     {},
       ENUM_POST.COMMENTS: [],
   }
-  post_parser = LJPostParser(post)
+
+  downloader = FileDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
+                              sub_dir=postid)
+  post_parser = LJPostParser(downloader, post)
   print("Parsing the post...")
   post_parser.feed(page_content)
   post[ENUM_POST.LINK] = page_addr
@@ -404,18 +432,24 @@ def add_post_to_index(postid, index):
       print("Error: %s" % err)
       continue
     json_content = extract_json_content(page_content)
-    extract_comments(json_content, post)
+    extract_comments(json_content, post, downloader)
 
   post[ENUM_POST.COMMENTS] = post[ENUM_POST.COMMENTS][1:]
+  downloader.download_files()
+
   pics = {}
   pic = None
   directory = "./%s" % index[ENUM_INDEX.LJUSER]
+
+  post[ENUM_POST.TEXT] = downloader.decode_filenames_in_text(
+      post[ENUM_POST.TEXT])
   for com in post[ENUM_POST.COMMENTS]:
+    com[ENUM_COM.TEXT] = downloader.decode_filenames_in_text(com[ENUM_COM.TEXT])
+
     if com.get(ENUM_COM.USERPIC):
       pic = get_userpic(com[ENUM_COM.USERPIC], directory, pics)
     else:
       pic = get_userpic(PIC_NOUSERPIC, directory, pics)
-
     if pic:
       com[ENUM_COM.USERPIC] = pic
 
