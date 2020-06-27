@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 
-from constants import (ENUM_INDEX, ENUM_POST, ENUM_COM)
-import sys
+import aiohttp
+import asyncio
+import datetime
+import json
 import os
+import re
+import sys
 import subprocess
 import urllib.request
-import datetime
-import re
-import json
+from contextlib import closing
 from html.parser import HTMLParser
 
 import helpers
-
+from constants import (ENUM_INDEX, ENUM_POST, ENUM_COM)
 
 ANSW_NO  = 0
 ANSW_YES = 1
@@ -30,6 +32,7 @@ PS_COMPAGES = 'ps-comment-pages'
 class FileDownloader():
 
   NO_PICTURE = '../../no-picture.svg" width="50" height="50'
+  MAX_CONNECTIONS_DEFAULT = 5
 
   def __init__(self, main_dir, sub_dir):
     self.files = {}
@@ -65,10 +68,48 @@ class FileDownloader():
 
     return 'file%d%s' % (len(self.files), fileext)
 
+  @staticmethod
+  async def download(url, dest, session, semaphore, chunk_size=1 << 15):
+    async with semaphore:
+      print("Downloading file '%s' --> '%s'" % (url, dest))
+      response = await session.get(url)
+      if response.status == 200:
+        with closing(response), \
+             open(dest, 'wb') as file:
+          while True:  # save file
+            chunk = await response.content.read(chunk_size)
+            if not chunk:
+              break
+            file.write(chunk)
+        print("Downloading file '%s': Done" % dest)
+      else:
+        print("Downloading file '%s': Error occured (%d)"
+            % (dest, response.status))
+    return dest, (response.status, tuple(response.headers.items()))
+
+  @staticmethod
+  async def download_files_asynchronously(
+      urls, max_connections=MAX_CONNECTIONS_DEFAULT):
+    async with aiohttp.ClientSession() as session:
+      semaphore = asyncio.Semaphore(max_connections)
+      tasks = [
+          FileDownloader.download(url, dest, session, semaphore)
+          for url, dest in urls.items()
+      ]
+      await asyncio.wait(tasks)
+
+
   def download_files(self):
+    urls = {}
     for file_id, url in self.files_to_download.items():
-      self.files[file_id] = self.download_file(
-          url, self.compose_filename(url))
+      filename = self.compose_filename(url)
+      urls[url] = '%s/%s' % (self.file_dir, filename)
+      self.files[file_id] = '../%s/%s' % (self.sub_dir, filename)
+    with closing(asyncio.get_event_loop()) as loop:
+      result = loop.run_until_complete(
+          FileDownloader.download_files_asynchronously(urls))
+    if result:
+      import pdb; pdb.set_trace()
 
   def decode_filenames_in_text(self, text):
     if not text:
@@ -167,7 +208,6 @@ class LJPostParser(HTMLParser):
         k1, v1 = attrs[1]
         if k0 == 'property' and v0 == 'article:tag' and k1 == 'content':
           self.post[ENUM_POST.TAGS][v1] = 1
-
 
   def handle_endtag(self, tag):
     if len(self.state) == 0: return
