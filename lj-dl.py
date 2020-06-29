@@ -37,6 +37,7 @@ class FileDownloader():
   def __init__(self, main_dir, sub_dir):
     self.files = {}
     self.files_to_download = {}
+    self.urls_to_download = {}
     self.main_dir = main_dir
     self.sub_dir = sub_dir
     self.file_dir = "./{main_dir}/{sub_dir}".format(
@@ -47,6 +48,7 @@ class FileDownloader():
   def plan_to_download(self, url):
     file_id = '##%d##' % len(self.files_to_download)
     self.files_to_download[file_id] = url
+    self.urls_to_download[url] = file_id
     return file_id
 
   def get_filename_by_id(self, file_id):
@@ -85,7 +87,7 @@ class FileDownloader():
       else:
         print("Downloading file '%s': Error occured (%d)"
             % (dest, response.status))
-    return dest, (response.status, tuple(response.headers.items()))
+    return response.status, url, dest
 
   @staticmethod
   async def download_files_asynchronously(
@@ -96,8 +98,7 @@ class FileDownloader():
           FileDownloader.download(url, dest, session, semaphore)
           for url, dest in urls.items()
       ]
-      await asyncio.wait(tasks)
-
+      return await asyncio.wait(tasks)
 
   def download_files(self):
     urls = {}
@@ -106,10 +107,14 @@ class FileDownloader():
       urls[url] = '%s/%s' % (self.file_dir, filename)
       self.files[file_id] = '../%s/%s' % (self.sub_dir, filename)
     with closing(asyncio.get_event_loop()) as loop:
-      result = loop.run_until_complete(
+      done, pending = loop.run_until_complete(
           FileDownloader.download_files_asynchronously(urls))
-    if result:
-      import pdb; pdb.set_trace()
+
+    for task in done:
+      code, url, dest = task.result()
+      if code != 200:
+        file_id = self.urls_to_download[url]
+        self.files[file_id] = self.NO_PICTURE
 
   def decode_filenames_in_text(self, text):
     if not text:
