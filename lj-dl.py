@@ -4,6 +4,7 @@ import aiohttp
 import asyncio
 import datetime
 import json
+import logging
 import os
 import re
 import sys
@@ -14,6 +15,7 @@ from html.parser import HTMLParser
 
 import helpers
 from constants import (ENUM_INDEX, ENUM_POST, ENUM_COM)
+
 
 ANSW_NO  = 0
 ANSW_YES = 1
@@ -61,7 +63,7 @@ class FileDownloader():
     fileext = ""
     m = re.search(".+\.(.+)$", url, re.MULTILINE)
     if m is None:
-      print("Error: Parsing '%s' failed" % url)
+      logging.error("Error: Parsing '%s' failed", url)
     else:
       fileext = "." + m.group(1)
 
@@ -73,9 +75,10 @@ class FileDownloader():
   @staticmethod
   async def download(url, dest, session, semaphore, chunk_size=1 << 15):
     async with semaphore:
-      print("Downloading file '%s' --> '%s'" % (url, dest))
+      logging.info("Downloading file '%s' --> '%s'", url, dest)
       response = await session.get(url)
       if response.status == 200:
+        size = 0
         with closing(response), \
              open(dest, 'wb') as file:
           while True:  # save file
@@ -83,10 +86,11 @@ class FileDownloader():
             if not chunk:
               break
             file.write(chunk)
-        print("Downloading file '%s': Done" % dest)
+            size += len(chunk)
+        logging.info("Downloading file '%s': Done [%d]", dest, size)
       else:
-        print("Downloading file '%s': Error occured (%d)"
-            % (dest, response.status))
+        logging.error("Downloading file '%s': Error occured (%d)",
+            dest, response.status)
     return response.status, url, dest
 
   @staticmethod
@@ -131,26 +135,6 @@ class FileDownloader():
       text = text.replace(find_id, filename)
 
     return text
-
-  def download_file(self, url, filename):
-    dest = '%s/%s' % (self.file_dir, filename)
-    try:
-      local_filename, headers = urllib.request.urlretrieve(url, dest)
-      length = headers['Content-Length']
-      print("Downloading file '%s' --> '%s' [%s]" % (url, dest, length))
-    except urllib.error.URLError as e:
-      print("Error: Downloading file '%s' failed (%s)" % (url, e.reason))
-      return self.NO_PICTURE
-    except FileNotFoundError as e:
-      import pdb; pdb.set_trace()
-    except ValueError as e:
-      print("Error: Invalid address '%s'" % (url))
-      return self.NO_PICTURE
-    except http.client.IncompleteRead as e:
-      print('Error: http.client.IncompleteRead exception occured')
-      return self.NO_PICTURE
-
-    return '../%s/%s' % (self.sub_dir, filename)
 
 
 class LJPostParser(HTMLParser):
@@ -282,7 +266,7 @@ def get_userpic(addr, directory, pics):
   else:
     m = re.search('(?:/*)l-userpic.livejournal.com/(\d+)/(\d+)', addr)
     if m is None:
-      print("Error: Parsing '%s' failed" % addr)
+      logging.error("Error: Parsing '%s' failed", addr)
       return None
 
     user_dir = m.group(1)
@@ -301,9 +285,11 @@ def get_userpic(addr, directory, pics):
   try:
     local_filename, headers = urllib.request.urlretrieve(addr, filename)
     length = headers['Content-Length']
-    print("Downloading userpic '%s' --> '%s' [%s]" % (addr, filename, length))
+    logging.info("Downloading userpic '%s' --> '%s' [%s]",
+        addr, filename, length)
   except urllib.error.URLError as e:
-    print("Error: Downloading userpic '%s' failed (%s)" % (addr, e.reason))
+    logging.error("Error: Downloading userpic '%s' failed (%s)",
+        addr, e.reason)
     return None
 
   pics[addr] = 1
@@ -322,10 +308,10 @@ def get_webpage_content(addr):
     out = response.read().decode('UTF-8')
     length = response.info()['Content-Length']
     if length == None: length = 'unknown size'
-    print("Downloading content of '%s'... [%s]" % (addr, length))
+    logging.info("Downloading content of '%s'... [%s]", addr, length)
   except urllib.error.URLError as e:
-    print("Error: Downloading content of web page '%s' failed (%s)" %
-        (addr, e.reason))
+    logging.error("Error: Downloading content of web page '%s' failed (%s)",
+        addr, e.reason)
     err = e.reason
   return out, err
 
@@ -333,7 +319,7 @@ def get_webpage_content(addr):
 def extract_json_content(page_content):
   m = re.search('^.*Site.page = (.+);', page_content, re.MULTILINE)
   if m is None:
-    print('Error: Parsing failed (no json content)')
+    logging.error('Error: Parsing failed (no json content)')
     return None
   return json.loads(m.group(1))
 
@@ -343,7 +329,7 @@ def extract_author(json_content, post):
   if entry_json:
     post[ENUM_POST.AUTHOR] = entry_json['poster'].strip()
   else:
-    print('Error: Parsing failed (no author in json content)')
+    logging.error('Error: Parsing failed (no author in json content)')
 
 
 def extract_header(json_content, post):
@@ -351,15 +337,15 @@ def extract_header(json_content, post):
   if entry_json:
     post[ENUM_POST.HEADER] = entry_json['title'].strip()
   else:
-    print('Error: Parsing failed (no title in json content)')
+    logging.error('Error: Parsing failed (no title in json content)')
 
 
 def extract_comments(json_content, post, downloader):
   comments = post[ENUM_POST.COMMENTS]
   comment_json = json_content.get('comments')
   if comment_json is None:
-    print('Error: Did not manage to obtain the comment section :( (postid: %s)'
-        % post[ENUM_POST.ID])
+    logging.error('Error: Did not manage to obtain the comment section :('
+                  '(postid: %s)', post[ENUM_POST.ID])
     import pdb; pdb.set_trace()
     exit(1)
   # exit(0)
@@ -410,7 +396,7 @@ def extract_comments(json_content, post, downloader):
                   # import pdb; pdb.set_trace()
                 page, err = get_webpage_content(jc['thread_url'])
                 if err:
-                  print('Error: %s' % err)
+                  logging.error('Error: %s', err)
                 else:
                   extract_comments(extract_json_content(page), post, downloader)
 
@@ -418,10 +404,11 @@ def extract_comments(json_content, post, downloader):
       if 'actions' in jc.keys():
         if 'href' in jc['actions'][0]:
           href = jc['actions'][0]['href']
-          print("Expanding thread '%s' (%s comments):" % (href, jc['more']))
+          logging.info("Expanding thread '%s' (%s comments):",
+              href, jc['more'])
           page, err = get_webpage_content(href)
           if err:
-            print('Error: %s' % err)
+            logging.error('Error: %s', err)
           else:
             extract_comments(extract_json_content(page), post, downloader)
 
@@ -454,7 +441,7 @@ def add_post_to_index(postid, index):
   downloader = FileDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
                               sub_dir=postid)
   post_parser = LJPostParser(downloader, post)
-  print('Parsing the post...')
+  logging.info('Parsing the post...')
   post_parser.feed(page_content)
   post[ENUM_POST.LINK] = page_addr
   json_content = extract_json_content(page_content)
@@ -465,7 +452,7 @@ def add_post_to_index(postid, index):
     post[ENUM_POST.COMPAGES] = []
     post[ENUM_POST.COMPAGES].append('/%s.html' % postid)
 
-  print('Parsing the comments (%d page(s) found)...' %
+  logging.info('Parsing the comments (%d page(s) found)...',
       len(post[ENUM_POST.COMPAGES]))
   threads = {}
   post[ENUM_POST.COMMENTS].append(threads)
@@ -474,7 +461,7 @@ def add_post_to_index(postid, index):
     link = 'http://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], p)
     page_content, err = get_webpage_content(link)
     if err:
-      print('Error: %s' % err)
+      logging.error('Error: %s', err)
       continue
     json_content = extract_json_content(page_content)
     extract_comments(json_content, post, downloader)
@@ -504,8 +491,8 @@ def add_post_to_index(postid, index):
   outfilename = '%s/%s.data' % (index[ENUM_INDEX.LJUSER], postid)
   save_json_to_file(post, outfilename)
 
-  print("Summary: %d comments have been saved to file '%s'" %
-      (len(post[ENUM_POST.COMMENTS]), outfilename))
+  logging.info("Summary: %d comments have been saved to file '%s'",
+      len(post[ENUM_POST.COMMENTS]), outfilename)
 
   index_post = {
       ENUM_INDEX.POST_ID:     postid,
@@ -525,16 +512,18 @@ if __name__=='__main__':
     print('Error: Too few params')
     exit(1)
 
+  logging.basicConfig(level=logging.INFO, format='%(asctime)s %(message)s')
+
   page_addr = sys.argv[1]
 
   m = re.search('(?:/*)([\w\-]+)\.livejournal.com/(\d+)\.\w*', page_addr)
   if m is None:
-    print("Error: Parsing '%s' failed" % (page_addr))
+    logging.crtical("Error: Parsing '%s' failed", page_addr)
     exit(2)
 
   ljuser = m.group(1)
   postid = m.group(2)
-  print("ljuser: '%s', postid: '%s'" % (ljuser, postid))
+  logging.info("ljuser: '%s', postid: '%s'", ljuser, postid)
 
   main_dir = './%s' % ljuser
   if not os.path.exists(main_dir):
@@ -549,8 +538,8 @@ if __name__=='__main__':
   else:
     with open(findex, 'r') as f:
       index = json.load(f)
-      print("Found index file '%s' (%d posts)"
-          % (findex, len(index[ENUM_INDEX.POSTS])))
+      logging.info("Found index file '%s' (%d posts)",
+          findex, len(index[ENUM_INDEX.POSTS]))
 
   index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
