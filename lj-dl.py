@@ -33,10 +33,46 @@ PS_COMPAGES = 'ps-comment-pages'
 
 class FileDownloader():
 
+  @staticmethod
+  async def download(url, dest, session, semaphore, chunk_size=1 << 15):
+    async with semaphore:
+      logging.info("Downloading file '%s' --> '%s'", url, dest)
+      response = await session.get(url)
+      if response.status == 200:
+        size = 0
+        with closing(response), \
+             open(dest, 'wb') as file:
+          while True:  # save file
+            chunk = await response.content.read(chunk_size)
+            if not chunk:
+              break
+            file.write(chunk)
+            size += len(chunk)
+        logging.info("Downloading file '%s': Done [%d]", dest, size)
+      else:
+        logging.error("Downloading file '%s': Error occured (%d)",
+            dest, response.status)
+    return response.status, url, dest
+
+  @staticmethod
+  async def download_files_asynchronously(
+      urls, max_connections):
+    async with aiohttp.ClientSession() as session:
+      semaphore = asyncio.Semaphore(max_connections)
+      tasks = [
+          FileDownloader.download(url, dest, session, semaphore)
+          for url, dest in urls.items()
+      ]
+      return await asyncio.wait(tasks)
+
+
+class ImageDownloader():
+
   NO_PICTURE = '../../no-picture.svg" width="50" height="50'
   MAX_CONNECTIONS_DEFAULT = 5
 
   def __init__(self, main_dir, sub_dir):
+    self.downloader = FileDownloader()
     self.files = {}
     self.files_to_download = {}
     self.urls_to_download = {}
@@ -72,38 +108,6 @@ class FileDownloader():
 
     return 'file%d%s' % (len(self.files), fileext)
 
-  @staticmethod
-  async def download(url, dest, session, semaphore, chunk_size=1 << 15):
-    async with semaphore:
-      logging.info("Downloading file '%s' --> '%s'", url, dest)
-      response = await session.get(url)
-      if response.status == 200:
-        size = 0
-        with closing(response), \
-             open(dest, 'wb') as file:
-          while True:  # save file
-            chunk = await response.content.read(chunk_size)
-            if not chunk:
-              break
-            file.write(chunk)
-            size += len(chunk)
-        logging.info("Downloading file '%s': Done [%d]", dest, size)
-      else:
-        logging.error("Downloading file '%s': Error occured (%d)",
-            dest, response.status)
-    return response.status, url, dest
-
-  @staticmethod
-  async def download_files_asynchronously(
-      urls, max_connections=MAX_CONNECTIONS_DEFAULT):
-    async with aiohttp.ClientSession() as session:
-      semaphore = asyncio.Semaphore(max_connections)
-      tasks = [
-          FileDownloader.download(url, dest, session, semaphore)
-          for url, dest in urls.items()
-      ]
-      return await asyncio.wait(tasks)
-
   def download_files(self):
     urls = {}
     for file_id, url in self.files_to_download.items():
@@ -112,7 +116,8 @@ class FileDownloader():
       self.files[file_id] = '../%s/%s' % (self.sub_dir, filename)
     with closing(asyncio.get_event_loop()) as loop:
       done, pending = loop.run_until_complete(
-          FileDownloader.download_files_asynchronously(urls))
+          self.downloader.download_files_asynchronously(
+              urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
 
     for task in done:
       code, url, dest = task.result()
@@ -438,7 +443,7 @@ def add_post_to_index(postid, index):
       ENUM_POST.COMMENTS: [],
   }
 
-  downloader = FileDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
+  downloader = ImageDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
                               sub_dir=postid)
   post_parser = LJPostParser(downloader, post)
   logging.info('Parsing the post...')
