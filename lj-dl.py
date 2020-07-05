@@ -96,7 +96,7 @@ class ImageDownloader():
     return self.files[file_id]
 
   def compose_filename(self, url):
-    fileext = ""
+    fileext = ''
     m = re.search(".+\.(.+)$", url, re.MULTILINE)
     if m is None:
       logging.error("Error: Parsing '%s' failed", url)
@@ -353,7 +353,6 @@ def extract_comments(json_content, post, downloader):
                   '(postid: %s)', post[ENUM_POST.ID])
     import pdb; pdb.set_trace()
     exit(1)
-  # exit(0)
   for jc in comment_json:
     if 'thread' in jc.keys():
       if not jc['thread'] in comments[0].keys():
@@ -370,7 +369,7 @@ def extract_comments(json_content, post, downloader):
                 ENUM_COM.DATETS:    jc['ctime_ts'],
                 ENUM_COM.LEVEL:     jc['level'],
                 ENUM_COM.PARENT:    jc['parent'],
-                ENUM_COM.TEXT:      "",
+                ENUM_COM.TEXT:      '',
             }
             comment_parser = LJCommentParser(downloader, com)
             comment_parser.feed(jc['article'])
@@ -391,7 +390,7 @@ def extract_comments(json_content, post, downloader):
                   ENUM_COM.DATETS:    jc['ctime_ts'],
                   ENUM_COM.LEVEL:     jc['level'],
                   ENUM_COM.PARENT:    jc['parent'],
-                  ENUM_COM.TEXT:      "deleted",
+                  ENUM_COM.TEXT:      'deleted',
               }
               comments.append(com)
               comments[0][com[ENUM_COM.THREAD]] = 1
@@ -436,7 +435,7 @@ def add_post_to_index(postid, index):
 
   post = {
       ENUM_POST.ID:       postid,
-      ENUM_POST.HEADER:   "",
+      ENUM_POST.HEADER:   '',
       ENUM_POST.MAIN_DIR: index[ENUM_INDEX.LJUSER],
       ENUM_POST.FILES:    {},
       ENUM_POST.TAGS:     {},
@@ -444,7 +443,7 @@ def add_post_to_index(postid, index):
   }
 
   downloader = ImageDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
-                              sub_dir=postid)
+                               sub_dir=postid)
   post_parser = LJPostParser(downloader, post)
   logging.info('Parsing the post...')
   post_parser.feed(page_content)
@@ -546,6 +545,6 @@ if __name__=='__main__':
       logging.info("Found index file '%s' (%d posts)",
           findex, len(index[ENUM_INDEX.POSTS]))
 
-  index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
   add_post_to_index(index=index, postid=postid)
