@@ -103,7 +103,27 @@ class _EnumCom(object):
   @constant
   def PARENT():
     return 'parent'
+  @constant
+  def CHILD_COMMENT():
+    return 'child_comment'
+
+
+class _EnumAsyncTaskStatus(object):
+  @constant
+  def PLANNED():
+    return 'planned'
+  @constant
+  def PROCESSING():
+    return 'processing'
+  @constant
+  def FINISHED():
+    return 'finished'
+  @constant
+  def HANDLED():
+    return 'handled'
+
 
 ENUM_INDEX = _EnumIndex()
 ENUM_POST  = _EnumPost()
 ENUM_COM   = _EnumCom()
+ENUM_ASYNC_TASK_STATUS = _EnumAsyncTaskStatus()

@@ -14,7 +14,7 @@ from contextlib import closing
 from html.parser import HTMLParser
 
 import helpers
-from constants import (ENUM_INDEX, ENUM_POST, ENUM_COM)
+from constants import (ENUM_INDEX, ENUM_POST, ENUM_COM, ENUM_ASYNC_TASK_STATUS)
 
 
 ANSW_NO  = 0
@@ -37,22 +37,28 @@ class FileDownloader():
   async def download(url, dest, session, semaphore, chunk_size=1 << 15):
     async with semaphore:
       logging.info("Downloading file '%s' --> '%s'", url, dest)
-      response = await session.get(url)
-      if response.status == 200:
-        size = 0
-        with closing(response), \
-             open(dest, 'wb') as file:
-          while True:  # save file
-            chunk = await response.content.read(chunk_size)
-            if not chunk:
-              break
-            file.write(chunk)
-            size += len(chunk)
-        logging.info("Downloading file '%s': Done [%d]", dest, size)
+      try:
+        response = await session.get(url)  # , verify_ssl=False
+      except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+        logging.error("Downloading file '%s': Error occured ('%s')",
+            dest, e)
+        return -1, url, dest
       else:
-        logging.error("Downloading file '%s': Error occured (%d)",
-            dest, response.status)
-    return response.status, url, dest
+        if response.status == 200:
+          size = 0
+          with closing(response), \
+               open(dest, 'wb') as file:
+            while True:  # save file
+              chunk = await response.content.read(chunk_size)
+              if not chunk:
+                break
+              file.write(chunk)
+              size += len(chunk)
+          logging.info("Downloading file '%s': Done [%d]", dest, size)
+        else:
+          logging.error("Downloading file '%s': Error occured (%d)",
+              dest, response.status)
+        return response.status, url, dest
 
   @staticmethod
   async def download_files_asynchronously(
@@ -62,6 +68,36 @@ class FileDownloader():
       tasks = [
           FileDownloader.download(url, dest, session, semaphore)
           for url, dest in urls.items()
+      ]
+      return await asyncio.wait(tasks)
+
+
+class ContentDownloader():
+
+  @staticmethod
+  async def download(url, session, semaphore, chunk_size=1 << 15):
+    content = None
+    async with semaphore:
+      logging.info("Downloading content of '%s'", url)
+      response = await session.get(url)
+      if response.status == 200:
+        content = await response.read()
+        size = len(content)
+        content = content.decode('utf-8')
+        logging.info("Downloading content of '%s': Done [%d]", url, size)
+      else:
+        logging.error("Downloading content of '%s': Error occured (%d)",
+            url, response.status)
+    return response.status, url, content
+
+  @staticmethod
+  async def download_content_asynchronously(
+      urls, max_connections):
+    async with aiohttp.ClientSession() as session:
+      semaphore = asyncio.Semaphore(max_connections)
+      tasks = [
+          ContentDownloader.download(url, session, semaphore)
+          for url in urls
       ]
       return await asyncio.wait(tasks)
 
@@ -114,10 +150,9 @@ class ImageDownloader():
       filename = self.compose_filename(url)
       urls[url] = '%s/%s' % (self.file_dir, filename)
       self.files[file_id] = '../%s/%s' % (self.sub_dir, filename)
-    with closing(asyncio.get_event_loop()) as loop:
-      done, pending = loop.run_until_complete(
-          self.downloader.download_files_asynchronously(
-              urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
+    done, pending = asyncio.run(
+        self.downloader.download_files_asynchronously(
+            urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
 
     for task in done:
       code, url, dest = task.result()
@@ -257,6 +292,217 @@ class LJCommentParser(HTMLParser):
     self.comment[ENUM_COM.TEXT] += data
 
 
+class AsyncTaskNode():
+
+  def __init__(self, data):
+    self.state = ENUM_ASYNC_TASK_STATUS.PLANNED
+    self.children = []
+    self.result = None
+    self.data = data
+
+  def get_state(self):
+    raise NotImplementedError
+
+  def get_result(self):
+    raise NotImplementedError
+
+  def set_result(self, result):
+    self.result = result
+
+  def get_async_task_data(self):
+    raise NotImplementedError
+
+
+class AsyncTaskProcessor():
+
+  def __init__(self):
+    self.task_queue = []
+    self.root_task = AsyncTaskNode(None)
+
+  async def run_tasks_asynchronously(self,async_tasks_data):
+    raise NotImplementedError
+
+  def handle_task_result(self, task):
+    raise NotImplementedError
+
+  def run(self):
+    round_needed = True
+    while round_needed:
+      round_needed = self.run_round()
+
+  def run_round(self):
+    async_tasks_data = {}
+    task_indexes = {}
+    for i in range(len(self.task_queue)):
+      task = self.task_queue[i]
+      task.status = ENUM_ASYNC_TASK_STATUS.PROCESSING
+      task_id = task.get_async_task_data()
+      task_indexes[task_id] = i
+      async_tasks_data[task_id] = None
+
+    done, pending = asyncio.run(
+        self.run_tasks_asynchronously(async_tasks_data.keys()))
+
+    for task_result in done:
+      result = task_result.result()
+      if len(result) == 1:
+        logging.error('Error: Coroutine failed: %s', task_result)
+      else:
+        code, task_id, result = result
+        task_index = task_indexes[task_id]
+        task = self.task_queue[task_index]
+        task.status = ENUM_ASYNC_TASK_STATUS.FINISHED
+        task.set_result(result)
+
+    tasks = self.task_queue
+    self.task_queue = []
+    for task in tasks:
+      self.handle_task_result(task)
+    return len(self.task_queue) > 0
+
+  @staticmethod
+  def create_task(task_data):
+    return AsyncTaskNode(task_data)
+
+  def add_task(self, parent_task, task_data):
+    task = self.create_task(task_data)
+    self.task_queue.append(task)
+    if not parent_task:
+      self.root_task.children.append(task)
+    else:
+      parent_task.children.append(task)
+
+  def iter_results(self):
+    raise NotImplementedError
+
+
+class CommentTaskNode(AsyncTaskNode):
+
+  def __init__(self, data):
+    AsyncTaskNode.__init__(self, data)
+    self.url = data
+    self.comments = []
+
+  def get_async_task_data(self):
+    return self.url
+
+
+class CommentTaskProcessor(AsyncTaskProcessor):
+
+  MAX_CONNECTIONS_DEFAULT = 4
+
+  def __init__(self, image_downloader):
+    AsyncTaskProcessor.__init__(self)
+    self.content_downloader = ContentDownloader()
+    self.image_downloader = image_downloader
+    self.comment_ids = set()
+
+  async def run_tasks_asynchronously(self, comment_thread_urls):
+    return await self.content_downloader.download_content_asynchronously(
+        comment_thread_urls, max_connections=self.MAX_CONNECTIONS_DEFAULT)
+
+  @staticmethod
+  def create_task(task_data):
+    return CommentTaskNode(task_data)
+
+  def handle_task_result(self, task):
+    if task.status != ENUM_ASYNC_TASK_STATUS.FINISHED:
+      raise ValueError(
+          "Error: Incorrect task status ('{}')").format(task.status)
+
+    self.extract_comments(task)
+    task.status = ENUM_ASYNC_TASK_STATUS.HANDLED
+
+  def _iter_results(self, task):
+    comments = []
+    for com in task.comments:
+      child_commment_num = com.get(ENUM_COM.CHILD_COMMENT)
+      if child_commment_num:
+        comments += self._iter_results(task.children[child_commment_num-1])
+      else:
+        comments.append(com)
+    return comments
+
+  def iter_results(self):
+    comments = []
+    for task in self.root_task.children:
+      comments += self._iter_results(task)
+    return comments
+
+
+  def extract_comments(self, task):
+    # import pdb; pdb.set_trace()
+    json_content = extract_json_content(task.result)
+    comment_json = json_content.get('comments')
+    if comment_json is None:
+      logging.error('Error: Did not manage to obtain the comment section :('
+                    '(url: %s)', task.url)
+      exit(1)
+
+    for jc in comment_json:
+      if 'thread' in jc.keys():
+        if jc['thread'] not in self.comment_ids:
+          if 'collapsed' in jc.keys():
+            if jc['collapsed'] == 0:
+              com = {
+                  ENUM_COM.ABOVE:     jc['above'],
+                  ENUM_COM.BELOW:     jc['below'],
+                  ENUM_COM.USER:      jc['uname'],
+                  ENUM_COM.USERPIC:   jc['userpic'],
+                  ENUM_COM.THREAD:    jc['thread'],
+                  ENUM_COM.THREADURL: jc['thread_url'],
+                  ENUM_COM.DATE:      jc['ctime'],
+                  ENUM_COM.DATETS:    jc['ctime_ts'],
+                  ENUM_COM.LEVEL:     jc['level'],
+                  ENUM_COM.PARENT:    jc['parent'],
+                  ENUM_COM.TEXT:      '',
+              }
+              comment_parser = LJCommentParser(self.image_downloader, com)
+              comment_parser.feed(jc['article'])
+              task.comments.append(com)
+              self.comment_ids.add(com[ENUM_COM.THREAD])
+            else:
+              if jc['deleted'] == 1 or jc['actions'] is None:
+                com = {
+                    ENUM_COM.ABOVE:     jc['above'],
+                    ENUM_COM.BELOW:     jc['below'],
+                    ENUM_COM.USER:      None,
+                    ENUM_COM.USERPIC:   None,
+                    ENUM_COM.DELETED:   jc['deleted'],
+                    ENUM_COM.THREAD:    jc['thread'],
+                    ENUM_COM.THREADURL: jc['thread_url'],
+                    ENUM_COM.DATE:      jc['ctime'],
+                    ENUM_COM.DATETS:    jc['ctime_ts'],
+                    ENUM_COM.LEVEL:     jc['level'],
+                    ENUM_COM.PARENT:    jc['parent'],
+                    ENUM_COM.TEXT:      'deleted',
+                }
+                task.comments.append(com)
+                self.comment_ids.add(com[ENUM_COM.THREAD])
+              else:
+                if 'thread_url' in jc.keys():
+                  self.add_task(task, jc['thread_url'])
+                  com = {
+                      ENUM_COM.CHILD_COMMENT: len(task.children),
+                  }
+                  task.comments.append(com)
+
+      elif 'more' in jc.keys() and jc['more'] > 1:
+        if 'actions' in jc.keys():
+          if 'href' in jc['actions'][0]:
+            href = jc['actions'][0]['href']
+            self.add_task(task, href)
+            com = {
+                ENUM_COM.CHILD_COMMENT: len(task.children),
+            }
+            task.comments.append(com)
+            logging.info("Expanding thread '%s' (%s comments) planned",
+                href, jc['more'])
+
+    logging.info("Thread '%s': %d comments found, %d tasks planned",
+                 task.url, len(task.comments), len(task.children))
+
+
 PIC_NOUSERPIC = 'http://l-stat.livejournal.net/img/userpics/userpic-user.png'
 
 def get_userpic(addr, directory, pics):
@@ -345,77 +591,6 @@ def extract_header(json_content, post):
     logging.error('Error: Parsing failed (no title in json content)')
 
 
-def extract_comments(json_content, post, downloader):
-  comments = post[ENUM_POST.COMMENTS]
-  comment_json = json_content.get('comments')
-  if comment_json is None:
-    logging.error('Error: Did not manage to obtain the comment section :('
-                  '(postid: %s)', post[ENUM_POST.ID])
-    import pdb; pdb.set_trace()
-    exit(1)
-  for jc in comment_json:
-    if 'thread' in jc.keys():
-      if not jc['thread'] in comments[0].keys():
-        if 'collapsed' in jc.keys():
-          if jc['collapsed'] == 0:
-            com = {
-                ENUM_COM.ABOVE:     jc['above'],
-                ENUM_COM.BELOW:     jc['below'],
-                ENUM_COM.USER:      jc['uname'],
-                ENUM_COM.USERPIC:   jc['userpic'],
-                ENUM_COM.THREAD:    jc['thread'],
-                ENUM_COM.THREADURL: jc['thread_url'],
-                ENUM_COM.DATE:      jc['ctime'],
-                ENUM_COM.DATETS:    jc['ctime_ts'],
-                ENUM_COM.LEVEL:     jc['level'],
-                ENUM_COM.PARENT:    jc['parent'],
-                ENUM_COM.TEXT:      '',
-            }
-            comment_parser = LJCommentParser(downloader, com)
-            comment_parser.feed(jc['article'])
-
-            comments.append(com)
-            comments[0][com[ENUM_COM.THREAD]] = 1
-          else:
-            if jc['deleted'] == 1 or jc['actions'] is None:
-              com = {
-                  ENUM_COM.ABOVE:     jc['above'],
-                  ENUM_COM.BELOW:     jc['below'],
-                  ENUM_COM.USER:      None,
-                  ENUM_COM.USERPIC:   None,
-                  ENUM_COM.DELETED:   jc['deleted'],
-                  ENUM_COM.THREAD:    jc['thread'],
-                  ENUM_COM.THREADURL: jc['thread_url'],
-                  ENUM_COM.DATE:      jc['ctime'],
-                  ENUM_COM.DATETS:    jc['ctime_ts'],
-                  ENUM_COM.LEVEL:     jc['level'],
-                  ENUM_COM.PARENT:    jc['parent'],
-                  ENUM_COM.TEXT:      'deleted',
-              }
-              comments.append(com)
-              comments[0][com[ENUM_COM.THREAD]] = 1
-            else:
-              if 'thread_url' in jc.keys():
-                # if jc['thread_url'] == ...
-                  # import pdb; pdb.set_trace()
-                page, err = get_webpage_content(jc['thread_url'])
-                if err:
-                  logging.error('Error: %s', err)
-                else:
-                  extract_comments(extract_json_content(page), post, downloader)
-
-    elif 'more' in jc.keys() and jc['more'] > 1:
-      if 'actions' in jc.keys():
-        if 'href' in jc['actions'][0]:
-          href = jc['actions'][0]['href']
-          logging.info("Expanding thread '%s' (%s comments):",
-              href, jc['more'])
-          page, err = get_webpage_content(href)
-          if err:
-            logging.error('Error: %s', err)
-          else:
-            extract_comments(extract_json_content(page), post, downloader)
-
 def save_json_to_file(js, filename):
   with open(filename, 'w+') as out:
     json.dump(js, out, ensure_ascii=False, indent=2)
@@ -458,19 +633,13 @@ def add_post_to_index(postid, index):
 
   logging.info('Parsing the comments (%d page(s) found)...',
       len(post[ENUM_POST.COMPAGES]))
-  threads = {}
-  post[ENUM_POST.COMMENTS].append(threads)
-
+  comment_processor = CommentTaskProcessor(downloader)
   for p in post[ENUM_POST.COMPAGES]:
     link = 'http://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], p)
-    page_content, err = get_webpage_content(link)
-    if err:
-      logging.error('Error: %s', err)
-      continue
-    json_content = extract_json_content(page_content)
-    extract_comments(json_content, post, downloader)
+    comment_processor.add_task(None, link)
 
-  post[ENUM_POST.COMMENTS] = post[ENUM_POST.COMMENTS][1:]
+  comment_processor.run()
+  post[ENUM_POST.COMMENTS] = comment_processor.iter_results()
   downloader.download_files()
 
   pics = {}
