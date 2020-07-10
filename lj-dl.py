@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 
-import aiohttp
 import asyncio
 import datetime
 import json
@@ -10,11 +9,11 @@ import re
 import sys
 import subprocess
 import urllib.request
-from contextlib import closing
 from html.parser import HTMLParser
 
 import helpers
 from constants import (ENUM_INDEX, ENUM_POST, ENUM_COM, ENUM_ASYNC_TASK_STATUS)
+from download_helpers import (FileDownloader, ContentDownloader)
 
 
 ANSW_NO  = 0
@@ -22,84 +21,6 @@ ANSW_YES = 1
 ANSW_ASK = 2
 
 OPT_REWRITE_POSTS_EXISTING = ANSW_ASK
-
-PS_HEADER   = 'ps-header'
-PS_TEXT     = 'ps-text'
-PS_DATE     = 'ps-date'
-PS_AUTHOR   = 'ps-author'
-PS_TAG      = 'ps-tag'
-PS_COMPAGES = 'ps-comment-pages'
-
-
-class FileDownloader():
-
-  @staticmethod
-  async def download(url, dest, session, semaphore, chunk_size=1 << 15):
-    async with semaphore:
-      logging.info("Downloading file '%s' --> '%s'", url, dest)
-      try:
-        response = await session.get(url)  # , verify_ssl=False
-      except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-        logging.error("Downloading file '%s': Error occured ('%s')",
-            dest, e)
-        return -1, url, dest
-      else:
-        if response.status == 200:
-          size = 0
-          with closing(response), \
-               open(dest, 'wb') as file:
-            while True:  # save file
-              chunk = await response.content.read(chunk_size)
-              if not chunk:
-                break
-              file.write(chunk)
-              size += len(chunk)
-          logging.info("Downloading file '%s': Done [%d]", dest, size)
-        else:
-          logging.error("Downloading file '%s': Error occured (%d)",
-              dest, response.status)
-        return response.status, url, dest
-
-  @staticmethod
-  async def download_files_asynchronously(
-      urls, max_connections):
-    async with aiohttp.ClientSession() as session:
-      semaphore = asyncio.Semaphore(max_connections)
-      tasks = [
-          FileDownloader.download(url, dest, session, semaphore)
-          for url, dest in urls.items()
-      ]
-      return await asyncio.wait(tasks)
-
-
-class ContentDownloader():
-
-  @staticmethod
-  async def download(url, session, semaphore, chunk_size=1 << 15):
-    content = None
-    async with semaphore:
-      logging.info("Downloading content of '%s'", url)
-      response = await session.get(url)
-      if response.status == 200:
-        content = await response.read()
-        size = len(content)
-        content = content.decode('utf-8')
-        logging.info("Downloading content of '%s': Done [%d]", url, size)
-      else:
-        logging.error("Downloading content of '%s': Error occured (%d)",
-            url, response.status)
-    return response.status, url, content
-
-  @staticmethod
-  async def download_content_asynchronously(
-      urls, max_connections):
-    async with aiohttp.ClientSession() as session:
-      semaphore = asyncio.Semaphore(max_connections)
-      tasks = [
-          ContentDownloader.download(url, session, semaphore)
-          for url in urls
-      ]
-      return await asyncio.wait(tasks)
 
 
 class ImageDownloader():
@@ -178,6 +99,11 @@ class ImageDownloader():
 
 
 class LJPostParser(HTMLParser):
+
+  PS_TEXT     = 'ps-text'
+  PS_DATE     = 'ps-date'
+  PS_COMPAGES = 'ps-comment-pages'
+
   def __init__(self, downloader, post):
     HTMLParser.__init__(self)
     self.state = []
@@ -185,7 +111,7 @@ class LJPostParser(HTMLParser):
     self.downloader = downloader
 
   def handle_starttag(self, tag, attrs):
-    if len(self.state) > 0 and self.state[-1] == PS_TEXT:
+    if len(self.state) > 0 and self.state[-1] == self.PS_TEXT:
       # stop condition
       if tag == 'a':
         if attrs and len(attrs) > 0:
@@ -209,11 +135,11 @@ class LJPostParser(HTMLParser):
       if attrs and len(attrs) > 0:
         k, v = attrs[0]
         if k == 'class' and re.search('b-pager-pages', v):
-          self.state.append(PS_COMPAGES)
+          self.state.append(self.PS_COMPAGES)
           self.post[ENUM_POST.COMPAGES] = []
     elif tag == 'a':
       if (attrs and len(attrs) == 1 and len(self.state) > 0 and
-          self.state[-1] == PS_COMPAGES):
+          self.state[-1] == self.PS_COMPAGES):
         k, v = attrs[0]
         if k == 'href':
           self.post[ENUM_POST.COMPAGES].append(v)
@@ -222,14 +148,14 @@ class LJPostParser(HTMLParser):
         k, v = attrs[0]
         if (k == 'class' and
             re.search('b-singlepost-author-date published dt-published', v)):
-          self.state.append(PS_DATE)
+          self.state.append(self.PS_DATE)
           self.post[ENUM_POST.DATE] = ''
     elif tag == 'article':
       if attrs and len(attrs) > 0:
         k, v = attrs[0]
         if (k == 'class' and
             re.search('b-singlepost-body entry-content e-content', v)):
-          self.state.append(PS_TEXT)
+          self.state.append(self.PS_TEXT)
           self.post[ENUM_POST.TEXT] = ''
     elif tag == 'meta':
       if attrs and len(attrs) > 1:
@@ -241,7 +167,7 @@ class LJPostParser(HTMLParser):
   def handle_endtag(self, tag):
     if len(self.state) == 0: return
 
-    if self.state[-1] == PS_TEXT:
+    if self.state[-1] == self.PS_TEXT:
       if tag == 'article':
         self.state.pop()
       elif tag == 'br':
@@ -251,18 +177,18 @@ class LJPostParser(HTMLParser):
       return
 
     # handle tags
-    if tag == 'ul' and self.state[-1] == PS_COMPAGES:
+    if tag == 'ul' and self.state[-1] == self.PS_COMPAGES:
       self.state.pop()
     elif tag == 'time':
-      assert self.state[-1] == PS_DATE
+      assert self.state[-1] == self.PS_DATE
       self.state.pop()
 
   def handle_data(self, data):
     if len(self.state) == 0: return
 
-    if self.state[-1] == PS_TEXT:
+    if self.state[-1] == self.PS_TEXT:
       self.post[ENUM_POST.TEXT] += data
-    elif self.state[-1] == PS_DATE:
+    elif self.state[-1] == self.PS_DATE:
       self.post[ENUM_POST.DATE] += data
 
 
@@ -319,7 +245,7 @@ class AsyncTaskProcessor():
     self.task_queue = []
     self.root_task = AsyncTaskNode(None)
 
-  async def run_tasks_asynchronously(self,async_tasks_data):
+  async def run_tasks_asynchronously(self, async_tasks_data):
     raise NotImplementedError
 
   def handle_task_result(self, task):
@@ -372,7 +298,7 @@ class AsyncTaskProcessor():
     else:
       parent_task.children.append(task)
 
-  def iter_results(self):
+  def get_results(self):
     raise NotImplementedError
 
 
@@ -413,25 +339,23 @@ class CommentTaskProcessor(AsyncTaskProcessor):
     self.extract_comments(task)
     task.status = ENUM_ASYNC_TASK_STATUS.HANDLED
 
-  def _iter_results(self, task):
+  def _get_task_result(self, task):
     comments = []
     for com in task.comments:
       child_commment_num = com.get(ENUM_COM.CHILD_COMMENT)
       if child_commment_num:
-        comments += self._iter_results(task.children[child_commment_num-1])
+        comments += self._get_task_result(task.children[child_commment_num-1])
       else:
         comments.append(com)
     return comments
 
-  def iter_results(self):
+  def get_results(self):
     comments = []
     for task in self.root_task.children:
-      comments += self._iter_results(task)
+      comments += self._get_task_result(task)
     return comments
 
-
   def extract_comments(self, task):
-    # import pdb; pdb.set_trace()
     json_content = extract_json_content(task.result)
     comment_json = json_content.get('comments')
     if comment_json is None:
@@ -639,7 +563,7 @@ def add_post_to_index(postid, index):
     comment_processor.add_task(None, link)
 
   comment_processor.run()
-  post[ENUM_POST.COMMENTS] = comment_processor.iter_results()
+  post[ENUM_POST.COMMENTS] = comment_processor.get_results()
   downloader.download_files()
 
   pics = {}
