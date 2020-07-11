@@ -10,7 +10,7 @@ from contextlib import closing
 class FileDownloader():
 
   @staticmethod
-  async def download(url, dest, session, semaphore, chunk_size=1 << 15):
+  async def _download(url, dest, session, semaphore, chunk_size=1 << 15):
     async with semaphore:
       logging.info("Downloading file '%s' --> '%s'", url, dest)
       try:
@@ -42,7 +42,7 @@ class FileDownloader():
     async with aiohttp.ClientSession() as session:
       semaphore = asyncio.Semaphore(max_connections)
       tasks = [
-          FileDownloader.download(url, dest, session, semaphore)
+          FileDownloader._download(url, dest, session, semaphore)
           for url, dest in urls.items()
       ]
       return await asyncio.wait(tasks)
@@ -51,7 +51,7 @@ class FileDownloader():
 class ContentDownloader():
 
   @staticmethod
-  async def download(url, session, semaphore, chunk_size=1 << 15):
+  async def _download(url, session, semaphore, chunk_size=1 << 15):
     content = None
     async with semaphore:
       logging.info("Downloading content of '%s'", url)
@@ -72,7 +72,7 @@ class ContentDownloader():
     async with aiohttp.ClientSession() as session:
       semaphore = asyncio.Semaphore(max_connections)
       tasks = [
-          ContentDownloader.download(url, session, semaphore)
+          ContentDownloader._download(url, session, semaphore)
           for url in urls
       ]
       return await asyncio.wait(tasks)

@@ -71,6 +71,10 @@ class ImageDownloader():
       filename = self.compose_filename(url)
       urls[url] = '%s/%s' % (self.file_dir, filename)
       self.files[file_id] = '../%s/%s' % (self.sub_dir, filename)
+
+    if not urls:
+      return
+
     done, pending = asyncio.run(
         self.downloader.download_files_asynchronously(
             urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
@@ -80,6 +84,93 @@ class ImageDownloader():
       if code != 200:
         file_id = self.urls_to_download[url]
         self.files[file_id] = self.NO_PICTURE
+
+  def decode_filenames_in_text(self, text):
+    if not text:
+      return text
+
+    file_ids = []
+    m_list = re.findall('##(\d+)##', text, re.MULTILINE)
+    if not m_list:
+      return text
+
+    for m in m_list:
+      find_id = '##%s##' % m
+      filename = self.get_filename_by_id(find_id)
+      text = text.replace(find_id, filename)
+
+    return text
+
+
+class UserpicDownloader():
+
+  NO_USERPIC = 'userpic-user.png'
+  MAX_CONNECTIONS_DEFAULT = 5
+  USERPIC_DIR = 'userpics'
+
+  def __init__(self, main_dir):
+    self.downloader = FileDownloader()
+    self.files = {}
+    self.files_to_download = {}
+    self.urls_to_download = {}
+    self.main_dir = main_dir
+    self.file_dir = "./{main_dir}".format(main_dir=main_dir)
+    if not os.path.exists(self.file_dir):
+      os.makedirs(self.file_dir)
+
+  def plan_to_download(self, url):
+    if url in self.urls_to_download:
+      return self.urls_to_download[url]
+    elif (not url or
+        url == 'http://l-stat.livejournal.net/img/userpics/userpic-user.png'):
+      user_dir = '/'
+      user_pic = self.NO_USERPIC
+    else:
+      m = re.search('(?:/*)l-userpic.livejournal.com/(\d+)/(\d+)', url)
+      if m is None:
+        logging.error("Error: Parsing '%s' failed", url)
+        return None
+
+      user_dir = m.group(1)
+      user_pic = m.group(2)
+
+    subdir = '%s/%s/%s' % (self.file_dir, self.USERPIC_DIR, user_dir)
+    if not os.path.exists(subdir):
+      os.makedirs(subdir)
+
+    filename = '%s/%s' % (user_dir, user_pic)
+    if os.path.isfile('%s/%s/%s' % (self.file_dir, self.USERPIC_DIR, filename)):
+      return '%s/%s/%s' % (self.USERPIC_DIR, user_dir, user_pic)
+
+    file_id = '##%d##' % len(self.files_to_download)
+    self.files_to_download[file_id] = (url, filename)
+    self.urls_to_download[url] = file_id
+    return file_id
+
+  def get_filename_by_id(self, file_id):
+    if file_id not in self.files:
+      raise LookupError
+
+    return self.files[file_id]
+
+  def download_files(self):
+    urls = {}
+    for file_id, (url, filename) in self.files_to_download.items():
+      urls[url] = '%s/%s/%s' % (self.main_dir, self.USERPIC_DIR, filename)
+      self.files[file_id] = '%s/%s' % (self.USERPIC_DIR, filename)
+
+    if not urls:
+      return
+
+    done, pending = asyncio.run(
+        self.downloader.download_files_asynchronously(
+            urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
+
+    for task in done:
+      code, url, dest = task.result()
+      if code != 200:
+        file_id = self.urls_to_download[url]
+        self.files[file_id] = self.NO_USERPIC
 
   def decode_filenames_in_text(self, text):
     if not text:
@@ -317,10 +408,11 @@ class CommentTaskProcessor(AsyncTaskProcessor):
 
   MAX_CONNECTIONS_DEFAULT = 4
 
-  def __init__(self, image_downloader):
+  def __init__(self, image_downloader, userpic_downloader):
     AsyncTaskProcessor.__init__(self)
     self.content_downloader = ContentDownloader()
     self.image_downloader = image_downloader
+    self.userpic_downloader = userpic_downloader
     self.comment_ids = set()
 
   async def run_tasks_asynchronously(self, comment_thread_urls):
@@ -381,6 +473,8 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                   ENUM_COM.PARENT:    jc['parent'],
                   ENUM_COM.TEXT:      '',
               }
+              com[ENUM_COM.USERPIC] = self.userpic_downloader.plan_to_download(
+                  com[ENUM_COM.USERPIC])
               comment_parser = LJCommentParser(self.image_downloader, com)
               comment_parser.feed(jc['article'])
               task.comments.append(com)
@@ -401,6 +495,9 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                     ENUM_COM.PARENT:    jc['parent'],
                     ENUM_COM.TEXT:      'deleted',
                 }
+                com[ENUM_COM.USERPIC] = (
+                    self.userpic_downloader.plan_to_download(
+                        com[ENUM_COM.USERPIC]))
                 task.comments.append(com)
                 self.comment_ids.add(com[ENUM_COM.THREAD])
               else:
@@ -425,51 +522,6 @@ class CommentTaskProcessor(AsyncTaskProcessor):
 
     logging.info("Thread '%s': %d comments found, %d tasks planned",
                  task.url, len(task.comments), len(task.children))
-
-
-PIC_NOUSERPIC = 'http://l-stat.livejournal.net/img/userpics/userpic-user.png'
-
-def get_userpic(addr, directory, pics):
-  if not os.path.exists('./' + directory):
-    os.makedirs('./' + directory)
-
-  user_dir = user_pic = None
-
-  if addr == PIC_NOUSERPIC:
-    user_dir = '/'
-    user_pic = 'userpic-user.png'
-  else:
-    m = re.search('(?:/*)l-userpic.livejournal.com/(\d+)/(\d+)', addr)
-    if m is None:
-      logging.error("Error: Parsing '%s' failed", addr)
-      return None
-
-    user_dir = m.group(1)
-    user_pic = m.group(2)
-
-  subdir = '%s/userpics/%s' % (directory,  user_dir)
-  if not os.path.exists(subdir):
-    os.makedirs(subdir)
-
-  filename = '%s/%s' % (subdir, user_pic)
-  if os.path.isfile(filename):
-    # print("File of userpic '%s' has already existed ('%s')" % (addr, filename))
-    filename = 'userpics/%s/%s' % (user_dir, user_pic)
-    return filename
-
-  try:
-    local_filename, headers = urllib.request.urlretrieve(addr, filename)
-    length = headers['Content-Length']
-    logging.info("Downloading userpic '%s' --> '%s' [%s]",
-        addr, filename, length)
-  except urllib.error.URLError as e:
-    logging.error("Error: Downloading userpic '%s' failed (%s)",
-        addr, e.reason)
-    return None
-
-  pics[addr] = 1
-  filename = 'userpics/%s/%s' % (user_dir, user_pic)
-  return filename
 
 
 def get_webpage_content(addr):
@@ -543,6 +595,7 @@ def add_post_to_index(postid, index):
 
   downloader = ImageDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
                                sub_dir=postid)
+  userpic_downloader = UserpicDownloader(main_dir=post[ENUM_POST.MAIN_DIR])
   post_parser = LJPostParser(downloader, post)
   logging.info('Parsing the post...')
   post_parser.feed(page_content)
@@ -557,7 +610,7 @@ def add_post_to_index(postid, index):
 
   logging.info('Parsing the comments (%d page(s) found)...',
       len(post[ENUM_POST.COMPAGES]))
-  comment_processor = CommentTaskProcessor(downloader)
+  comment_processor = CommentTaskProcessor(downloader, userpic_downloader)
   for p in post[ENUM_POST.COMPAGES]:
     link = 'http://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], p)
     comment_processor.add_task(None, link)
@@ -565,22 +618,14 @@ def add_post_to_index(postid, index):
   comment_processor.run()
   post[ENUM_POST.COMMENTS] = comment_processor.get_results()
   downloader.download_files()
-
-  pics = {}
-  pic = None
-  directory = './%s' % index[ENUM_INDEX.LJUSER]
+  userpic_downloader.download_files()
 
   post[ENUM_POST.TEXT] = downloader.decode_filenames_in_text(
       post[ENUM_POST.TEXT])
   for com in post[ENUM_POST.COMMENTS]:
     com[ENUM_COM.TEXT] = downloader.decode_filenames_in_text(com[ENUM_COM.TEXT])
-
-    if com.get(ENUM_COM.USERPIC):
-      pic = get_userpic(com[ENUM_COM.USERPIC], directory, pics)
-    else:
-      pic = get_userpic(PIC_NOUSERPIC, directory, pics)
-    if pic:
-      com[ENUM_COM.USERPIC] = pic
+    com[ENUM_COM.USERPIC] = userpic_downloader.decode_filenames_in_text(
+        com[ENUM_COM.USERPIC])
 
   # pop redundant fields
   post.pop(ENUM_POST.FILES)
