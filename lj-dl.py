@@ -23,54 +23,47 @@ ANSW_ASK = 2
 OPT_REWRITE_POSTS_EXISTING = ANSW_ASK
 
 
-class ImageDownloader():
+class AbstractFileDownloader():
 
-  NO_PICTURE = '../../no-picture.svg" width="50" height="50'
   MAX_CONNECTIONS_DEFAULT = 5
 
-  def __init__(self, main_dir, sub_dir):
+  def __init__(self, main_dir):
     self.downloader = FileDownloader()
     self.files = {}
     self.files_to_download = {}
     self.urls_to_download = {}
     self.main_dir = main_dir
-    self.sub_dir = sub_dir
-    self.file_dir = "./{main_dir}/{sub_dir}".format(
-        main_dir=main_dir, sub_dir=sub_dir)
-    if not os.path.exists(self.file_dir):
-      os.makedirs(self.file_dir)
+
+  def generate_next_file_id(self):
+    return '##%d##' % len(self.files_to_download)
+
+  def compose_filename(self, url):
+    raise NotImplementedError
 
   def plan_to_download(self, url):
-    file_id = '##%d##' % len(self.files_to_download)
-    self.files_to_download[file_id] = url
+    if url in self.urls_to_download:
+      return self.urls_to_download[url]
+
+    filename, existing = self.compose_filename(url)
+    if existing:
+      return filename
+
+    file_id = self.generate_next_file_id()
+    self.files_to_download[file_id] = (url, filename)
     self.urls_to_download[url] = file_id
     return file_id
 
   def get_filename_by_id(self, file_id):
-    if file_id not in self.files:
-      raise LookupError
-
     return self.files[file_id]
 
-  def compose_filename(self, url):
-    fileext = ''
-    m = re.search(".+\.(.+)$", url, re.MULTILINE)
-    if m is None:
-      logging.error("Error: Parsing '%s' failed", url)
-    else:
-      fileext = "." + m.group(1)
-
-    if len(fileext) > 5 or '/' in fileext or '.' in fileext[1:]:
-      fileext = '.xxx'
-
-    return 'file%d%s' % (len(self.files), fileext)
+  def get_fallback_filename(self):
+    raise NotImplementedError
 
   def download_files(self):
     urls = {}
-    for file_id, url in self.files_to_download.items():
-      filename = self.compose_filename(url)
-      urls[url] = '%s/%s' % (self.file_dir, filename)
-      self.files[file_id] = '../%s/%s' % (self.sub_dir, filename)
+    for file_id, (url, filename) in self.files_to_download.items():
+      urls[url] = '%s/%s' % (self.main_dir, filename)
+      self.files[file_id] = '%s' % (filename)
 
     if not urls:
       return
@@ -83,45 +76,94 @@ class ImageDownloader():
       code, url, dest = task.result()
       if code != 200:
         file_id = self.urls_to_download[url]
-        self.files[file_id] = self.NO_PICTURE
+        self.files[file_id] = self.get_fallback_filename()
+
+  @staticmethod
+  def get_file_id_mark_regex():
+    return '##(\d+)##'
+
+
+  def compose_link_to_file(self, filename):
+    raise NotImplementedError
+
+  @staticmethod
+  def make_file_id_mark_by_id(file_id):
+    return '##{}##'.format(file_id)
 
   def decode_filenames_in_text(self, text):
     if not text:
       return text
 
     file_ids = []
-    m_list = re.findall('##(\d+)##', text, re.MULTILINE)
+    m_list = re.findall(AbstractFileDownloader.get_file_id_mark_regex(),
+                        text, re.MULTILINE)
     if not m_list:
       return text
 
     for m in m_list:
-      find_id = '##%s##' % m
-      filename = self.get_filename_by_id(find_id)
-      text = text.replace(find_id, filename)
+      file_id = AbstractFileDownloader.make_file_id_mark_by_id(m)
+      filename = self.compose_link_to_file(self.get_filename_by_id(file_id))
+      text = text.replace(file_id, filename)
 
     return text
 
 
-class UserpicDownloader():
+class ImageDownloader(AbstractFileDownloader):
+
+  NO_PICTURE = '../../no-picture.svg" width="50" height="50'
+
+  def __init__(self, main_dir, sub_dir):
+    AbstractFileDownloader.__init__(self, main_dir)
+    self.num_files = -1
+    self.sub_dir = sub_dir
+    self.file_dir = "./{main_dir}/{sub_dir}".format(
+        main_dir=main_dir, sub_dir=sub_dir)
+    if not os.path.exists(self.file_dir):
+      os.makedirs(self.file_dir)
+
+  def compose_link_to_file(self, filename):
+    return '../{}'.format(filename)
+
+  def get_fallback_filename(self):
+    return self.NO_PICTURE
+
+  def compose_filename(self, url):
+    fileext = ''
+    m = re.search(".+\.(.+)$", url, re.MULTILINE)
+    if m is None:
+      logging.error("Error: Parsing '%s' failed", url)
+    else:
+      fileext = "." + m.group(1)
+
+    if len(fileext) > 5 or '/' in fileext or '.' in fileext[1:]:
+      fileext = '.xxx'
+
+    self.num_files += 1
+    return '%s/file%d%s' % (self.sub_dir, self.num_files, fileext), False
+
+
+class UserpicDownloader(AbstractFileDownloader):
 
   NO_USERPIC = 'userpic-user.png'
-  MAX_CONNECTIONS_DEFAULT = 5
+  # MAX_CONNECTIONS_DEFAULT = 5
   USERPIC_DIR = 'userpics'
 
   def __init__(self, main_dir):
-    self.downloader = FileDownloader()
-    self.files = {}
-    self.files_to_download = {}
-    self.urls_to_download = {}
-    self.main_dir = main_dir
+    AbstractFileDownloader.__init__(self, main_dir)
     self.file_dir = "./{main_dir}".format(main_dir=main_dir)
     if not os.path.exists(self.file_dir):
       os.makedirs(self.file_dir)
 
-  def plan_to_download(self, url):
-    if url in self.urls_to_download:
-      return self.urls_to_download[url]
-    elif (not url or
+  def get_fallback_filename(self):
+    return '%s/%s' % (self.USERPIC_DIR, self.NO_USERPIC)
+
+  def compose_link_to_file(self, filename):
+    return filename
+
+  def compose_filename(self, url):
+    user_dir = user_pic = None
+
+    if (not url or
         url == 'http://l-stat.livejournal.net/img/userpics/userpic-user.png'):
       user_dir = '/'
       user_pic = self.NO_USERPIC
@@ -138,55 +180,10 @@ class UserpicDownloader():
     if not os.path.exists(subdir):
       os.makedirs(subdir)
 
-    filename = '%s/%s' % (user_dir, user_pic)
-    if os.path.isfile('%s/%s/%s' % (self.file_dir, self.USERPIC_DIR, filename)):
-      return '%s/%s/%s' % (self.USERPIC_DIR, user_dir, user_pic)
-
-    file_id = '##%d##' % len(self.files_to_download)
-    self.files_to_download[file_id] = (url, filename)
-    self.urls_to_download[url] = file_id
-    return file_id
-
-  def get_filename_by_id(self, file_id):
-    if file_id not in self.files:
-      raise LookupError
-
-    return self.files[file_id]
-
-  def download_files(self):
-    urls = {}
-    for file_id, (url, filename) in self.files_to_download.items():
-      urls[url] = '%s/%s/%s' % (self.main_dir, self.USERPIC_DIR, filename)
-      self.files[file_id] = '%s/%s' % (self.USERPIC_DIR, filename)
-
-    if not urls:
-      return
-
-    done, pending = asyncio.run(
-        self.downloader.download_files_asynchronously(
-            urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
-
-    for task in done:
-      code, url, dest = task.result()
-      if code != 200:
-        file_id = self.urls_to_download[url]
-        self.files[file_id] = self.NO_USERPIC
-
-  def decode_filenames_in_text(self, text):
-    if not text:
-      return text
-
-    file_ids = []
-    m_list = re.findall('##(\d+)##', text, re.MULTILINE)
-    if not m_list:
-      return text
-
-    for m in m_list:
-      find_id = '##%s##' % m
-      filename = self.get_filename_by_id(find_id)
-      text = text.replace(find_id, filename)
-
-    return text
+    filename = '%s/%s/%s/%s' % (
+        self.file_dir, self.USERPIC_DIR, user_dir, user_pic)
+    rel_filename = '%s/%s/%s' % (self.USERPIC_DIR, user_dir, user_pic)
+    return rel_filename, os.path.isfile(filename)
 
 
 class LJPostParser(HTMLParser):
@@ -593,10 +590,10 @@ def add_post_to_index(postid, index):
       ENUM_POST.COMMENTS: [],
   }
 
-  downloader = ImageDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
-                               sub_dir=postid)
+  image_downloader = ImageDownloader(main_dir=post[ENUM_POST.MAIN_DIR],
+                                     sub_dir=postid)
   userpic_downloader = UserpicDownloader(main_dir=post[ENUM_POST.MAIN_DIR])
-  post_parser = LJPostParser(downloader, post)
+  post_parser = LJPostParser(image_downloader, post)
   logging.info('Parsing the post...')
   post_parser.feed(page_content)
   post[ENUM_POST.LINK] = page_addr
@@ -610,20 +607,22 @@ def add_post_to_index(postid, index):
 
   logging.info('Parsing the comments (%d page(s) found)...',
       len(post[ENUM_POST.COMPAGES]))
-  comment_processor = CommentTaskProcessor(downloader, userpic_downloader)
+  comment_processor = CommentTaskProcessor(
+      image_downloader, userpic_downloader)
   for p in post[ENUM_POST.COMPAGES]:
     link = 'http://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], p)
     comment_processor.add_task(None, link)
 
   comment_processor.run()
   post[ENUM_POST.COMMENTS] = comment_processor.get_results()
-  downloader.download_files()
+  image_downloader.download_files()
   userpic_downloader.download_files()
 
-  post[ENUM_POST.TEXT] = downloader.decode_filenames_in_text(
+  post[ENUM_POST.TEXT] = image_downloader.decode_filenames_in_text(
       post[ENUM_POST.TEXT])
   for com in post[ENUM_POST.COMMENTS]:
-    com[ENUM_COM.TEXT] = downloader.decode_filenames_in_text(com[ENUM_COM.TEXT])
+    com[ENUM_COM.TEXT] = image_downloader.decode_filenames_in_text(
+        com[ENUM_COM.TEXT])
     com[ENUM_COM.USERPIC] = userpic_downloader.decode_filenames_in_text(
         com[ENUM_COM.USERPIC])
 
