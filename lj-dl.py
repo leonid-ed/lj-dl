@@ -70,9 +70,17 @@ class AbstractFileDownloader():
     if not urls:
       return
 
-    done, pending = asyncio.run(
-        self.downloader.download_files_asynchronously(
-            urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
+    if sys.version_info >= (3, 7):
+      done, pending = asyncio.run(
+          self.downloader.download_files_asynchronously(
+              urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
+    elif sys.version_info >= (3, 5):
+      loop = asyncio.get_event_loop()
+      done, pending = loop.run_until_complete(
+          self.downloader.download_files_asynchronously(
+              urls, max_connections=self.MAX_CONNECTIONS_DEFAULT))
+    else:
+      assert False, "Your Python version is not support"
 
     for task in done:
       code, url, dest = task.result()
@@ -351,8 +359,15 @@ class AsyncTaskProcessor():
       task.status = ENUM_ASYNC_TASK_STATUS.PROCESSING
       async_tasks_data[task_id] = None
 
-    done, pending = asyncio.run(
-        self.run_tasks_asynchronously(async_tasks_data.keys()))
+    if sys.version_info >= (3, 7):
+      done, pending = asyncio.run(
+          self.run_tasks_asynchronously(async_tasks_data.keys()))
+    elif sys.version_info >= (3, 5):
+      loop = asyncio.get_event_loop()
+      done, pending = loop.run_until_complete(
+          self.run_tasks_asynchronously(async_tasks_data.keys()))
+    else:
+      assert False, "Your Python version is not support"
 
     for task_result in done:
       result = task_result.result()
@@ -473,8 +488,10 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                   ENUM_COM.PARENT:    jc['parent'],
                   ENUM_COM.TEXT:      '',
               }
-              com[ENUM_COM.USERPIC] = self.userpic_downloader.plan_to_download(
-                  com[ENUM_COM.USERPIC])
+              if com[ENUM_COM.USERPIC]:
+                com[ENUM_COM.USERPIC] = (
+                    self.userpic_downloader.plan_to_download(
+                      com[ENUM_COM.USERPIC]))
               comment_parser = LJCommentParser(self.image_downloader, com)
               comment_parser.feed(jc['article'])
               task.comments.append(com)
@@ -495,9 +512,10 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                     ENUM_COM.PARENT:    jc['parent'],
                     ENUM_COM.TEXT:      'deleted',
                 }
-                com[ENUM_COM.USERPIC] = (
-                    self.userpic_downloader.plan_to_download(
-                        com[ENUM_COM.USERPIC]))
+                if com[ENUM_COM.USERPIC]:
+                  com[ENUM_COM.USERPIC] = (
+                      self.userpic_downloader.plan_to_download(
+                          com[ENUM_COM.USERPIC]))
                 task.comments.append(com)
                 self.comment_ids[com[ENUM_COM.THREAD]] = task
               else:

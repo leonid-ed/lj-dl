@@ -223,7 +223,9 @@ def make_post_html_page(main_dir, postid):
   </td></tr>
   </table>
 </div>
-""" ) % (offset, comment_user_style, "../" + comm[ENUM_COM.USERPIC],
+""" ) % (offset, comment_user_style,
+         ('./no-user.svg' if not comm[ENUM_COM.USERPIC]
+          else "../" + comm[ENUM_COM.USERPIC]),
          comm[ENUM_COM.USER], comm[ENUM_COM.DATE], comm[ENUM_COM.THREADURL],
          comm[ENUM_COM.TEXT])
 
@@ -253,16 +255,16 @@ if __name__=='__main__':
   if not os.path.exists(html_dir):
     os.makedirs("./" + html_dir)
 
-  # copying no-picture.svg to html directory
-  nopicture_filename = "no-picture.svg"
-  if not os.path.isfile("./%s/%s" % (html_dir, nopicture_filename)):
-    if os.path.isfile("./%s" % nopicture_filename):
-      shutil.copyfile(
-        "./%s" % nopicture_filename,
-        "./%s/%s" % (html_dir, nopicture_filename)
-      )
-    else:
-      print("Error: file './%s' doesn't exist" % nopicture_filename)
+  # copying pictures to html directory
+  for picture_file in ('no-picture.svg', 'no-user.svg'):
+    if not os.path.isfile("./%s/%s" % (html_dir, picture_file)):
+      if os.path.isfile("./%s" % picture_file):
+        shutil.copyfile(
+          "./%s" % picture_file,
+          "./%s/%s" % (html_dir, picture_file)
+        )
+      else:
+        print("Error: file './%s' doesn't exist" % picture_file)
 
   with open(fdata, "r") as f:
     jdata = json.load(f)
