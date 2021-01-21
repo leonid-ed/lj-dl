@@ -44,6 +44,9 @@ class _EnumPost(object):
   def TEXT():
     return "post-text"
   @constant
+  def REPLYCOUNT():
+    return "post-replycount"
+  @constant
   def COMPAGES():
     return "post-comment-pages"
   @constant
