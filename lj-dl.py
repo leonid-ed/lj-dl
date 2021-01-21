@@ -495,7 +495,8 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                     self.userpic_downloader.plan_to_download(
                       com[ENUM_COM.USERPIC]))
               comment_parser = LJCommentParser(self.image_downloader, com)
-              comment_parser.feed(jc['article'])
+              if jc['article']:
+                comment_parser.feed(jc['article'])
               task.comments.append(com)
               self.comment_ids[com[ENUM_COM.THREAD]] = task
             else:
