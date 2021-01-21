@@ -391,7 +391,9 @@ class AsyncTaskProcessor():
 
   def add_task(self, parent_task, task_data):
     if task_data in self.task_queue:
-      assert False, "'%s' is already existing in the task queue" % (task_data)
+      assert False, ("'%s' is already existing in the task queue"
+                     "(parent is '%s')"
+                     % (task_data, parent_task.url if parent_task else 'None'))
 
     task = self.create_task(task_data)
     self.task_queue[task_data] = task
@@ -538,6 +540,12 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                   jc = comment_json[i]
                   parent = jc.get('parent')
                   above = jc.get('above')
+
+                  # Skip also 'more' sections if we're going to fetch them later
+                  if ('more' in jc and jc['more'] and
+                      jc['parent'] not in self.comment_ids):
+                    continue
+
                   if any((
                      not ('collapsed' in jc and jc['collapsed'] == 1),
                      not (above and above != above_thread_id),
