@@ -608,11 +608,14 @@ def extract_json_content(page_content):
 
 
 def extract_author(json_content, post):
+  rs = False
   entry_json = json_content.get('entry')
   if entry_json:
     post[ENUM_POST.AUTHOR] = entry_json['poster'].strip()
+    rs = True
   else:
     logging.error('Error: Parsing failed (no author in json content)')
+  return rs
 
 
 def extract_header(json_content, post):
@@ -621,11 +624,15 @@ def extract_header(json_content, post):
     post[ENUM_POST.HEADER] = entry_json['title'].strip()
   else:
     logging.error('Error: Parsing failed (no title in json content)')
+    return False
 
   replycount = json_content.get('replycount')
   post[ENUM_POST.REPLYCOUNT] = replycount
   if replycount is None:
     logging.error('Error: Parsing failed (no replycount in json content)')
+    return False
+
+  return True
 
 
 def save_json_to_file(js, filename):
@@ -662,8 +669,9 @@ def add_post_to_index(postid, index):
   post_parser.feed(page_content)
   post[ENUM_POST.LINK] = page_addr
   json_content = extract_json_content(page_content)
-  extract_author(json_content, post)
-  extract_header(json_content, post)
+  if not (extract_author(json_content, post) and
+          extract_header(json_content, post)):
+    return
 
   if post.get(ENUM_POST.COMPAGES) is None:
     post[ENUM_POST.COMPAGES] = []
