@@ -13,7 +13,8 @@ userpics) and creates json files to keep their structure on the disk.
 
 Requirements: `aiohttp`, `asyncio`
 
-**For now it supports only jivejournal pages that have json section with comments.**
+**For now it supports only jivejournal posts that have `is_version2` version
+(you can it find in the source of the page.**
 Otherwise you will get an error:
 ```
 Error: Parsing failed (no author in json content)
@@ -36,5 +37,5 @@ Example of usage:
 python3 lj-cv.py <user_name>
 ```
 
-After the tool finishes you will have a subdirectory `html` in `<user_name>` name
+After the tool finishes you will have a subdirectory `html` in `<user_name>`
 containing the generated HTML-files.

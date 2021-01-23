@@ -466,9 +466,9 @@ class CommentTaskProcessor(AsyncTaskProcessor):
     json_content = extract_json_content(task.result)
     comment_json = json_content.get('comments')
     if comment_json is None:
-      logging.error('Error: Did not manage to obtain the comment section :('
+      logging.error('Error: Did not manage to obtain the comment section '
                     '(url: %s)', task.url)
-      exit(1)
+      return
 
     i = 0
     while i < len(comment_json):
@@ -563,9 +563,15 @@ class CommentTaskProcessor(AsyncTaskProcessor):
         hrefs = []
         for action in jc['actions']:
           if action['name'] == 'expand':
-            href_pref = action['href'].split('=')[0]
+            href_split = urllib.parse.urlsplit(action['href'])
             for target_thread_id in jc['data'].split(':'):
-              hrefs.append(href_pref + '={0}#t{0}'.format(target_thread_id))
+              new_href_split = urllib.parse.SplitResult(
+                  href_split.scheme,
+                  href_split.netloc,
+                  href_split.path,
+                  'format=light&thread={0}'.format(target_thread_id),
+                  't{0}'.format(target_thread_id))
+              hrefs.append(urllib.parse.urlunsplit(new_href_split))
             break
 
         for href in hrefs:
@@ -726,6 +732,20 @@ def add_post_to_index(postid, index):
   save_json_to_file(index, outfilename)
 
 
+def add_argument_to_url(url, arg_key, arg_val):
+  if not url or not arg_key or not arg_val:
+    return None
+
+  url_split = urllib.parse.urlsplit(url)
+  new_url_split = urllib.parse.SplitResult(
+      url_split.scheme,
+      url_split.netloc,
+      url_split.path,
+      '&'.join(['{}={}'.format(arg_key, arg_val)] + url_split.query.split('&')),
+      url_split.fragment)
+  return urllib.parse.urlunsplit(new_url_split)
+
+
 # MAIN
 if __name__=='__main__':
   if len(sys.argv) < 2:
@@ -763,4 +783,5 @@ if __name__=='__main__':
 
   index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+  page_addr = add_argument_to_url(page_addr, 'format', 'light')
   add_post_to_index(index=index, postid=postid)
