@@ -206,6 +206,14 @@ class LJPostParser(HTMLParser):
     self.post = post
     self.downloader = downloader
 
+  def _set_state(self, new_state):
+      self.state.append(new_state)
+      logging.info(f"SET STATE: {new_state}")
+
+  def _pop_state(self):
+      state = self.state.pop()
+      logging.info(f"POP STATE: {state}")
+
   def handle_starttag(self, tag, attrs):
     if len(self.state) > 0 and self.state[-1] == self.PS_TEXT:
       # stop condition
@@ -213,7 +221,7 @@ class LJPostParser(HTMLParser):
         if attrs and len(attrs) > 0:
           k, v = attrs[0]
           if k == 'name' and re.search('cutid1-end', v):
-            self.state.pop()
+            self._pop_state()
             return
       # include given tag
       self.post[ENUM_POST.TEXT] += ('<%s ' % tag)
@@ -231,7 +239,7 @@ class LJPostParser(HTMLParser):
       if attrs and len(attrs) > 0:
         k, v = attrs[0]
         if k == 'class' and re.search('b-pager-pages', v):
-          self.state.append(self.PS_COMPAGES)
+          self._set_state(self.PS_COMPAGES)
           self.post[ENUM_POST.COMPAGES] = []
     elif tag == 'a':
       if (attrs and len(attrs) == 1 and len(self.state) > 0 and
@@ -240,18 +248,16 @@ class LJPostParser(HTMLParser):
         if k == 'href':
           self.post[ENUM_POST.COMPAGES].append(v)
     elif tag == 'time':
+      self._set_state(self.PS_DATE)
+      self.post[ENUM_POST.DATE] = ''
+    elif tag == 'div':
       if attrs and len(attrs) > 0:
         k, v = attrs[0]
-        if (k == 'class' and
-            re.search('b-singlepost-author-date published dt-published', v)):
-          self.state.append(self.PS_DATE)
-          self.post[ENUM_POST.DATE] = ''
-    elif tag == 'article':
-      if attrs and len(attrs) > 0:
-        k, v = attrs[0]
-        if (k == 'class' and
-            re.search('b-singlepost-body entry-content e-content', v)):
-          self.state.append(self.PS_TEXT)
+        if (k == 'class' and (
+            re.search('b-singlepost-body entry-content e-content', v) or
+            re.search('aentry-post__text aentry-post__text--view', v)
+            )):
+          self._set_state(self.PS_TEXT)
           self.post[ENUM_POST.TEXT] = ''
     elif tag == 'meta':
       if attrs and len(attrs) > 1:
@@ -265,7 +271,7 @@ class LJPostParser(HTMLParser):
 
     if self.state[-1] == self.PS_TEXT:
       if tag == 'article':
-        self.state.pop()
+        self._pop_state()
       elif tag == 'br':
         pass
       else:
@@ -274,10 +280,10 @@ class LJPostParser(HTMLParser):
 
     # handle tags
     if tag == 'ul' and self.state[-1] == self.PS_COMPAGES:
-      self.state.pop()
+      self._pop_state()
     elif tag == 'time':
       assert self.state[-1] == self.PS_DATE
-      self.state.pop()
+      self._pop_state()
 
   def handle_data(self, data):
     if len(self.state) == 0: return
@@ -463,16 +469,16 @@ class CommentTaskProcessor(AsyncTaskProcessor):
     return comments
 
   def extract_comments(self, task):
-    json_content = extract_json_content(task.result)
-    comment_json = json_content.get('comments')
-    if comment_json is None:
+    json_contents = extract_json_contents(task.result)
+    json_comments = json_contents['page'].get('comments')
+    if json_comments is None:
       logging.error('Error: Did not manage to obtain the comment section '
                     '(url: %s)', task.url)
       return
 
     i = 0
-    while i < len(comment_json):
-      jc = comment_json[i]
+    while i < len(json_comments):
+      jc = json_comments[i]
       if 'thread' in jc.keys():
         if jc['thread'] not in self.comment_ids:
           if 'collapsed' in jc.keys():
@@ -535,10 +541,10 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                 above_thread_id = jc['above']
                 while True:
                   i += 1
-                  if not i < len(comment_json):
+                  if not i < len(json_comments):
                     break
 
-                  jc = comment_json[i]
+                  jc = json_comments[i]
                   parent = jc.get('parent')
                   above = jc.get('above')
 
@@ -605,38 +611,42 @@ def get_webpage_content(addr):
   return out, err
 
 
-def extract_json_content(page_content):
-  m = re.search('^.*Site.page = (.+);', page_content, re.MULTILINE)
-  if m is None:
-    logging.error('Error: Parsing failed (no json content)')
-    return None
-  return json.loads(m.group(1))
+def extract_json_contents(page_content):
+  contents = {}
+  for section_name in ('page', 'entry'):
+    m = re.search(('^.*Site.%s = (.+);' % (section_name)), page_content, re.MULTILINE)
+    if m is None:
+      logging.error("Warning: Parsing the page: no json content of section '%s'" % (section_name))
+      continue
+    contents[section_name] = json.loads(m.group(1))
+  return contents
 
 
-def extract_author(json_content, post):
-  rs = False
-  entry_json = json_content.get('entry')
+def extract_author(json_contents, post):
+  entry_json = json_contents.get('entry')
   if entry_json:
     post[ENUM_POST.AUTHOR] = entry_json['poster'].strip()
-    rs = True
-  else:
-    logging.error('Error: Parsing failed (no author in json content)')
-  return rs
+    return True
+
+  logging.error('Error: Parsing failed (no author in json content)')
+  return False
 
 
-def extract_header(json_content, post):
-  entry_json = json_content.get('entry')
-  if entry_json:
-    post[ENUM_POST.HEADER] = entry_json['title'].strip()
-  else:
+def extract_header(json_contents, post):
+  entry_json = json_contents.get('entry')
+  if entry_json is None:
     logging.error('Error: Parsing failed (no title in json content)')
     return False
 
-  replycount = json_content.get('replycount')
-  post[ENUM_POST.REPLYCOUNT] = replycount
+  post[ENUM_POST.HEADER] = entry_json['title'].strip()
+
+  page_json = json_contents.get('page')
+  replycount = page_json.get('replycount')
   if replycount is None:
     logging.error('Error: Parsing failed (no replycount in json content)')
     return False
+
+  post[ENUM_POST.REPLYCOUNT] = replycount
 
   return True
 
@@ -674,9 +684,9 @@ def add_post_to_index(postid, index):
   logging.info('Parsing the post...')
   post_parser.feed(page_content)
   post[ENUM_POST.LINK] = page_addr
-  json_content = extract_json_content(page_content)
-  if not (extract_author(json_content, post) and
-          extract_header(json_content, post)):
+  json_contents = extract_json_contents(page_content)
+  if not (extract_author(json_contents, post) and
+          extract_header(json_contents, post)):
     return
 
   if post.get(ENUM_POST.COMPAGES) is None:
@@ -695,6 +705,8 @@ def add_post_to_index(postid, index):
   post[ENUM_POST.COMMENTS] = comment_processor.get_results()
   image_downloader.download_files()
   userpic_downloader.download_files()
+
+  # import pdb; pdb.set_trace()
 
   post[ENUM_POST.TEXT] = image_downloader.decode_filenames_in_text(
       post[ENUM_POST.TEXT])

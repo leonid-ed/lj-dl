@@ -81,6 +81,9 @@ containing the generated HTML-files.
 
 ## Install requirements
 
+Currently the tools work only with Python 3.10, so make sure you use 
+the proper version.
+
 ```
 $ python3 -m venv venv
 $ source ./venv/bin/activate
