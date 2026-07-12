@@ -19,7 +19,7 @@ def make_index_html_page(main_dir, posts):
   out += "<body>\n"
 
   out += """
-<div class=\"post-head\" ">
+<div class=\"post-head\">
   <table>
 """
   for p in posts.values():
@@ -45,7 +45,7 @@ def make_index_html_page(main_dir, posts):
   out += "</html>"
 
   filename = "%s/html/index.html" % (main_dir)
-  with open(filename, 'w+') as f:
+  with open(filename, 'w+', encoding='utf-8') as f:
     f.write(out)
 
   print("Index HTML file '%s' has been generated successfully" % filename)
@@ -58,7 +58,7 @@ def make_post_html_page(main_dir, postid):
     print("Error: file '%s' doesn't exist" % fdata)
     return 1
 
-  with open(fdata, "r") as f:
+  with open(fdata, "r", encoding='utf-8') as f:
     jdata = json.load(f)
 
     out = "<!DOCTYPE HTML>\n"
@@ -127,7 +127,7 @@ def make_post_html_page(main_dir, postid):
     post_tags = "Tags: " + ", ".join(jdata[ENUM_POST.TAGS].keys())
 
   out += ( """
-<div class=\"post-head\" ">
+<div class=\"post-head\">
   <table>
   <tr><td>
     <div class=\"post-head-title\" >
@@ -233,7 +233,7 @@ def make_post_html_page(main_dir, postid):
   out += "</html>"
 
   filename = "%s/html/%s.html" % (main_dir, postid)
-  with open(filename, 'w+') as f:
+  with open(filename, 'w+', encoding='utf-8') as f:
     f.write(out)
 
   print("HTML file '%s' has been generated successfully" % filename)
@@ -266,7 +266,7 @@ if __name__=='__main__':
       else:
         print("Error: file './%s' doesn't exist" % picture_file)
 
-  with open(fdata, "r") as f:
+  with open(fdata, "r", encoding='utf-8') as f:
     jdata = json.load(f)
 
   # sort posts by creation time

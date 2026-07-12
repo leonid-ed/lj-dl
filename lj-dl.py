@@ -652,7 +652,7 @@ def extract_header(json_contents, post):
 
 
 def save_json_to_file(js, filename):
-  with open(filename, 'w+') as out:
+  with open(filename, 'w+', encoding='utf-8') as out:
     json.dump(js, out, ensure_ascii=False, indent=2)
 
 
@@ -788,7 +788,7 @@ if __name__=='__main__':
     index[ENUM_INDEX.POSTS] = {}
     index[ENUM_INDEX.LJUSER] = ljuser
   else:
-    with open(findex, 'r') as f:
+    with open(findex, 'r', encoding='utf-8') as f:
       index = json.load(f)
       logging.info("Found index file '%s' (%d posts)",
           findex, len(index[ENUM_INDEX.POSTS]))
