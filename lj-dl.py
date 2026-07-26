@@ -208,11 +208,9 @@ class LJPostParser(HTMLParser):
 
   def _set_state(self, new_state):
       self.state.append(new_state)
-      logging.info(f"SET STATE: {new_state}")
 
   def _pop_state(self):
       state = self.state.pop()
-      logging.info(f"POP STATE: {state}")
 
   def handle_starttag(self, tag, attrs):
     if len(self.state) > 0 and self.state[-1] == self.PS_TEXT:
@@ -250,7 +248,7 @@ class LJPostParser(HTMLParser):
     elif tag == 'time':
       self._set_state(self.PS_DATE)
       self.post[ENUM_POST.DATE] = ''
-    elif tag == 'div':
+    elif tag == 'article':
       if attrs and len(attrs) > 0:
         k, v = attrs[0]
         if (k == 'class' and (
@@ -530,7 +528,8 @@ class CommentTaskProcessor(AsyncTaskProcessor):
               else:
                 # Create a task to download the collapsed thread
                 #   in the next round
-                self.add_task(task, jc['thread_url'])
+                new_thread_url = enrich_url_with_noscroll(jc['thread_url'])
+                self.add_task(task, new_thread_url)
                 com = {
                     ENUM_COM.CHILD_COMMENT: len(task.children),
                 }
@@ -575,9 +574,11 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                   href_split.scheme,
                   href_split.netloc,
                   href_split.path,
-                  'format=light&thread={0}'.format(target_thread_id),
+                  'thread={0}'.format(target_thread_id),
                   't{0}'.format(target_thread_id))
-              hrefs.append(urllib.parse.urlunsplit(new_href_split))
+              new_thread_url = urllib.parse.urlunsplit(new_href_split)
+              new_thread_url = enrich_url_with_noscroll(new_thread_url)
+              hrefs.append(new_thread_url)
             break
 
         for href in hrefs:
@@ -697,9 +698,10 @@ def add_post_to_index(postid, index):
       len(post[ENUM_POST.COMPAGES]))
   comment_processor = CommentTaskProcessor(
       image_downloader, userpic_downloader)
-  for p in post[ENUM_POST.COMPAGES]:
-    link = 'http://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], p)
-    comment_processor.add_task(None, link)
+  for comment_page_link in post[ENUM_POST.COMPAGES]:
+    comment_page_url = 'http://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], comment_page_link)
+    comment_page_url = enrich_url_with_noscroll(comment_page_url)
+    comment_processor.add_task(None, comment_page_url)
 
   comment_processor.run()
   post[ENUM_POST.COMMENTS] = comment_processor.get_results()
@@ -742,6 +744,10 @@ def add_post_to_index(postid, index):
 
   outfilename = '%s/index.data' % (index[ENUM_INDEX.LJUSER])
   save_json_to_file(index, outfilename)
+
+
+def enrich_url_with_noscroll(url):
+    return add_argument_to_url(url, 'noscroll', '1')
 
 
 def add_argument_to_url(url, arg_key, arg_val):
@@ -795,5 +801,5 @@ if __name__=='__main__':
 
   index[ENUM_INDEX.DATE] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-  page_addr = add_argument_to_url(page_addr, 'format', 'light')
+  page_addr = enrich_url_with_noscroll(page_addr)
   add_post_to_index(index=index, postid=postid)
