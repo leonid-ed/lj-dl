@@ -5,6 +5,7 @@ import datetime
 
 import json
 import logging
+import time
 import os
 import re
 import sys
@@ -172,7 +173,7 @@ class UserpicDownloader(AbstractFileDownloader):
     user_dir = user_pic = None
 
     if (not url or
-        url == 'http://l-stat.livejournal.net/img/userpics/userpic-user.png'):
+        url == 'https://l-stat.livejournal.net/img/userpics/userpic-user.png'):
       user_dir = '/'
       user_pic = self.NO_USERPIC
     else:
@@ -593,22 +594,45 @@ class CommentTaskProcessor(AsyncTaskProcessor):
                  task.url, len(task.comments), len(task.children))
 
 
-def get_webpage_content(addr):
+def get_webpage_content(addr, max_attempts=3, backoff_factor=1.0):
   err = out = None
-  try:
-    headers = {
-        'Cookie': 'adult_explicit=1'
-    }
-    request = urllib.request.Request(addr, headers=headers)
-    response = urllib.request.urlopen(request)
-    out = response.read().decode('UTF-8')
-    length = response.info()['Content-Length']
-    if length == None: length = 'unknown size'
-    logging.info("Downloading content of '%s'... [%s]", addr, length)
-  except urllib.error.URLError as e:
-    logging.error("Error: Downloading content of web page '%s' failed (%s)",
-        addr, e.reason)
-    err = e.reason
+  headers = {"Cookie": "adult_explicit=1"}
+  request = urllib.request.Request(addr, headers=headers)
+
+  for attempt in range(1, max_attempts + 1):
+    try:
+      response = urllib.request.urlopen(request)
+      out = response.read().decode("UTF-8")
+      length = response.info()["Content-Length"]
+      if length is None:
+          length = "unknown size"
+      logging.info("Downloading content of '%s'... [%s]", addr, length)
+
+      # Clear any errors from previous failed attempts upon success
+      err = None
+      break  # Exit the retry loop on success
+    except urllib.error.URLError as e:
+      err = e.reason
+
+      if attempt < max_attempts:
+        # Exponential backoff delay (e.g., 1s, 2s, 4s...)
+        sleep_time = backoff_factor * (2 ** (attempt - 1))
+        logging.warning(
+            "Attempt %d/%d failed: %s. Retrying in %.1f seconds...",
+            attempt,
+            max_attempts,
+            err,
+            sleep_time,
+        )
+        time.sleep(sleep_time)
+      else:
+        # Log the final failure once all attempts are exhausted
+        logging.error(
+           "Error: Downloading content of web page '%s' failed after %d attempts (%s)",
+           addr,
+           max_attempts,
+           err,
+        )
   return out, err
 
 
@@ -699,7 +723,7 @@ def add_post_to_index(postid, index):
   comment_processor = CommentTaskProcessor(
       image_downloader, userpic_downloader)
   for comment_page_link in post[ENUM_POST.COMPAGES]:
-    comment_page_url = 'http://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], comment_page_link)
+    comment_page_url = 'https://%s.livejournal.com%s' % (index[ENUM_INDEX.LJUSER], comment_page_link)
     comment_page_url = enrich_url_with_noscroll(comment_page_url)
     comment_processor.add_task(None, comment_page_url)
 

@@ -25,6 +25,7 @@ you can extend this script with new parsers and add their support to the functio
 """
 
 import sys
+import time
 import urllib.request
 import re
 from html.parser import HTMLParser
@@ -64,19 +65,48 @@ def retrieve_date_from_post_day_link(link):
   return dt
 
 
-def get_webpage_content(addr):
-  err = None
-  out = None
-  try:
-    response = urllib.request.urlopen(addr)
-    out = response.read().decode('UTF-8')
-    length = response.info()['Content-Length']
-    if length == None: length = 'unknown size'
-    vprint("Downloading content of '%s'... [%s]" % (addr, length))
-  except urllib.error.URLError as e:
-    vprint("Error: Downloading content of web page '%s' failed (%s)" % (addr, e.reason))
-    err = e.reason
-  return (out, err)
+def get_webpage_content(addr, max_attempts=3, backoff_factor=1.0):
+  err = out = None
+  headers = {"Cookie": "adult_explicit=1"}
+  request = urllib.request.Request(addr, headers=headers)
+
+  for attempt in range(1, max_attempts + 1):
+    try:
+      response = urllib.request.urlopen(request)
+      out = response.read().decode("UTF-8")
+      length = response.info()["Content-Length"]
+      if length is None:
+          length = "unknown size"
+      vprint("Downloading content of '%s'... [%s]" % (addr, length))
+
+      # Clear any errors from previous failed attempts upon success
+      err = None
+      break  # Exit the retry loop on success
+    except urllib.error.URLError as e:
+      err = e.reason
+
+      if attempt < max_attempts:
+        # Exponential backoff delay (e.g., 1s, 2s, 4s...)
+        sleep_time = backoff_factor * (2 ** (attempt - 1))
+        vprint(
+            "Attempt %d/%d failed: %s. Retrying in %.1f seconds..." % (
+                attempt,
+                max_attempts,
+                err,
+                sleep_time
+            )
+        )
+        time.sleep(sleep_time)
+      else:
+        # Log the final failure once all attempts are exhausted
+        vprint(
+           "Error: Downloading content of web page '%s' failed after %d attempts (%s)" % (
+               addr,
+               max_attempts,
+               err,
+           )
+        )
+  return out, err
 
 
 class YearCalendarMinimalismParser(HTMLParser):
